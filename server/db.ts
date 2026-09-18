@@ -2,9 +2,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ActivityEntry, ActivityKind, Conversation, NetworkContext, NetworkMetrics, NewShipment, Shipment, ShipmentStatus, StoredMessage, User } from '../src/data/network'
+import type { ActivityEntry, ActivityKind, Conversation, Dispatch, Driver, DriverStatus, NetworkContext, NetworkMetrics, NewDispatch, NewDriver, NewShipment, Shipment, ShipmentStatus, StoredMessage, User } from '../src/data/network'
 import { hashPassword } from './auth'
-import { FLEET, SEED_ACTIVITY, SEED_SHIPMENTS, SEED_USERS } from './seed'
+import { FLEET, SEED_ACTIVITY, SEED_DRIVERS, SEED_SHIPMENTS, SEED_USERS } from './seed'
 
 /**
  * SQLite persistence using Node's built-in `node:sqlite` module, so there is
@@ -13,7 +13,7 @@ import { FLEET, SEED_ACTIVITY, SEED_SHIPMENTS, SEED_USERS } from './seed'
  * created.
  */
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -97,7 +97,27 @@ db.exec(`
     created_at      TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS drivers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    phone      TEXT NOT NULL,
+    license    TEXT NOT NULL DEFAULT 'Class C',
+    hub        TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'Available' CHECK (status IN ('Available', 'On route', 'Off duty')),
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS dispatches (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    shipment_id   TEXT NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
+    hub           TEXT NOT NULL,
+    vehicle       TEXT,
+    dispatched_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS activity_occurred_at ON activity(occurred_at DESC);
+  CREATE INDEX IF NOT EXISTS dispatches_created_at ON dispatches(created_at DESC);
   CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
   CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at DESC);
   CREATE INDEX IF NOT EXISTS messages_conversation ON copilot_messages(conversation_id, id);
@@ -117,6 +137,15 @@ function seedIfEmpty() {
       insertUser.run(user.email, user.name, user.role, hashPassword(user.password), nowIso())
     }
     console.log(`[haul.io] Seeded ${SEED_USERS.length} demo users`)
+  }
+
+  const drivers = db.prepare('SELECT COUNT(*) AS count FROM drivers').get() as { count: number }
+  if (drivers.count === 0) {
+    const insertDriver = db.prepare('INSERT INTO drivers (name, phone, license, hub, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    SEED_DRIVERS.forEach((driver, index) => {
+      insertDriver.run(driver.name, driver.phone, driver.license, driver.hub, driver.status, new Date(Date.now() - (index + 1) * 24 * 60 * 60 * 1000).toISOString())
+    })
+    console.log(`[haul.io] Seeded ${SEED_DRIVERS.length} drivers`)
   }
 
   const shipments = db.prepare('SELECT COUNT(*) AS count FROM shipments').get() as { count: number }
@@ -288,6 +317,84 @@ function insertActivity(kind: ActivityKind, title: string, body: string, shipmen
   return { id: Number(result.lastInsertRowid), kind, title, body, shipmentId, occurredAt }
 }
 
+/* ------------------------------------------------------------------ drivers */
+
+type DriverRow = { id: number; name: string; phone: string; license: string; hub: string; status: DriverStatus; created_at: string }
+
+function toDriver(row: DriverRow): Driver {
+  return { id: row.id, name: row.name, phone: row.phone, license: row.license, hub: row.hub, status: row.status, createdAt: row.created_at }
+}
+
+export function listDrivers(): Driver[] {
+  const rows = db.prepare('SELECT * FROM drivers ORDER BY created_at DESC, id DESC').all() as unknown as DriverRow[]
+  return rows.map(toDriver)
+}
+
+/** Adds a driver to the roster and logs it in the activity feed. */
+export function createDriver(input: NewDriver): Driver {
+  const name = input.name.trim()
+  const hub = input.hub.trim()
+  const license = input.license?.trim() || 'Class C'
+  const createdAt = nowIso()
+
+  db.exec('BEGIN')
+  try {
+    const result = db.prepare('INSERT INTO drivers (name, phone, license, hub, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(name, input.phone.trim(), license, hub, 'Available', createdAt)
+    insertActivity('driver', 'Driver added', `${name} · ${hub} hub · ${license}`, null)
+    db.exec('COMMIT')
+    return { id: Number(result.lastInsertRowid), name, phone: input.phone.trim(), license, hub, status: 'Available', createdAt }
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
+/* --------------------------------------------------------------- dispatches */
+
+type DispatchRow = { id: number; shipment_id: string; hub: string; vehicle: string | null; dispatched_by: string | null; created_at: string }
+
+function toDispatch(row: DispatchRow): Dispatch {
+  return { id: row.id, shipmentId: row.shipment_id, hub: row.hub, vehicle: row.vehicle, dispatchedBy: row.dispatched_by ?? 'Unknown', createdAt: row.created_at }
+}
+
+export function listDispatches(limit = 50): Dispatch[] {
+  const rows = db.prepare(`
+    SELECT d.id, d.shipment_id, d.hub, d.vehicle, u.name AS dispatched_by, d.created_at
+    FROM dispatches d LEFT JOIN users u ON u.id = d.dispatched_by
+    ORDER BY d.created_at DESC, d.id DESC LIMIT ?
+  `).all(limit) as unknown as DispatchRow[]
+  return rows.map(toDispatch)
+}
+
+/**
+ * Records a vehicle leaving a hub with a shipment. A shipment still sitting
+ * at a hub moves to "In transit"; the dispatch is logged in the activity feed.
+ * Returns null when the shipment does not exist or is already delivered.
+ */
+export function createDispatch(input: NewDispatch, user: User): Dispatch | null {
+  const shipment = getShipment(input.shipmentId.trim())
+  if (!shipment || shipment.status === 'Delivered') return null
+  const hub = input.hub.trim()
+  const vehicle = input.vehicle?.trim() || null
+  const createdAt = nowIso()
+
+  db.exec('BEGIN')
+  try {
+    const result = db.prepare('INSERT INTO dispatches (shipment_id, hub, vehicle, dispatched_by, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(shipment.id, hub, vehicle, user.id, createdAt)
+    if (shipment.status === 'At hub') {
+      db.prepare(`UPDATE shipments SET status = 'In transit' WHERE id = ?`).run(shipment.id)
+    }
+    insertActivity('dispatch', 'Vehicle dispatched', `${vehicle ? `${vehicle} · ` : ''}${shipment.id} left ${hub} hub`, shipment.id)
+    db.exec('COMMIT')
+    return { id: Number(result.lastInsertRowid), shipmentId: shipment.id, hub, vehicle, dispatchedBy: user.name, createdAt }
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
 /* ---------------------------------------------------------- conversations */
 
 type ConversationRow = { id: number; title: string; created_at: string; updated_at: string }
@@ -358,6 +465,8 @@ export function getSnapshot(): NetworkContext {
     shipments,
     metrics: computeMetrics(shipments, activity),
     fleet: { vehiclesInMotion: FLEET.vehiclesInMotion, vehiclesAtHubs: FLEET.vehiclesAtHubs, vehiclesConnected: FLEET.vehiclesConnected, hubs: FLEET.hubs },
+    drivers: listDrivers(),
+    dispatches: listDispatches(),
     activity,
   }
 }

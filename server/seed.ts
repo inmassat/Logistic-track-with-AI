@@ -1,4 +1,4 @@
-import type { ActivityKind, FleetSnapshot, ShipmentStatus } from '../src/data/network'
+import type { ActivityKind, DriverStatus, FleetSnapshot, ShipmentStatus } from '../src/data/network'
 
 /**
  * Sample data written into SQLite the first time the service starts with an
@@ -62,6 +62,17 @@ export const FLEET: FleetSnapshot & { onTimeRate: string; onTimeRateLastMonth: s
   onTimeRateLastMonth: '92.1%',
   utilization: '78.2%',
 }
+
+export type SeedDriver = { name: string; phone: string; license: string; hub: string; status: DriverStatus }
+
+/** The starting driver roster. Drivers added in the UI join these rows. */
+export const SEED_DRIVERS: SeedDriver[] = [
+  { name: 'Elena Rossi', phone: '+49 40 555 0142', license: 'Class CE', hub: 'Hamburg', status: 'On route' },
+  { name: 'Marek Novak', phone: '+31 10 555 0187', license: 'Class C', hub: 'Rotterdam', status: 'Available' },
+  { name: 'Sofia Lindqvist', phone: '+32 3 555 0119', license: 'Class CE', hub: 'Antwerp', status: 'On route' },
+  { name: 'Luca Moretti', phone: '+33 4 555 0163', license: 'Class D', hub: 'Lyon', status: 'Off duty' },
+  { name: 'Priya Raman', phone: '+31 10 555 0155', license: 'Class C', hub: 'Rotterdam', status: 'On route' },
+]
 
 /** Demo accounts. Passwords are hashed with scrypt before they reach SQLite. */
 export const SEED_USERS = [

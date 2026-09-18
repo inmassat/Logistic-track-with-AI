@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createShipment, deleteConversation, fetchConversations, fetchSnapshot, markShipmentForReview } from './ai'
+import { createDriver, createShipment, deleteConversation, dispatchVehicle, fetchConversations, fetchSnapshot, markShipmentForReview } from './ai'
 
 export const SNAPSHOT_KEY = ['snapshot'] as const
 export const CONVERSATIONS_KEY = ['conversations'] as const
@@ -31,6 +31,22 @@ export function useMarkForReview() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: markShipmentForReview,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: SNAPSHOT_KEY }),
+  })
+}
+
+export function useAddDriver() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: createDriver,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: SNAPSHOT_KEY }),
+  })
+}
+
+export function useDispatchVehicle() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: dispatchVehicle,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: SNAPSHOT_KEY }),
   })
 }

@@ -3,9 +3,9 @@ import type { NextFunction, Request, Response } from 'express'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ChatMessage, NetworkContext, NewShipment, User } from '../src/data/network'
+import type { ChatMessage, NetworkContext, NewDispatch, NewDriver, NewShipment, User } from '../src/data/network'
 import { REMEMBERED_SESSION_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, clearedSessionCookie, newSessionToken, parseCookies, sessionCookie, verifyPassword } from './auth'
-import { DB_PATH, addMessage, createConversation, createSession, createShipment, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, listActivity, listConversations, listMessages, listShipments, markShipmentForReview } from './db'
+import { DB_PATH, addMessage, createConversation, createDispatch, createDriver, createSession, createShipment, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, listActivity, listConversations, listDispatches, listDrivers, listMessages, listShipments, markShipmentForReview } from './db'
 import { ENGINE, answerQuestion, assessRisk, buildBriefing, searchShipments } from './demoAi'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -101,6 +101,46 @@ app.post('/api/shipments/:id/review', (req: Request, res: Response) => {
 
 app.get('/api/activity', (_req: Request, res: Response) => {
   res.json({ activity: listActivity() })
+})
+
+/* ------------------------------------------------------ drivers & dispatch */
+
+app.get('/api/drivers', (_req: Request, res: Response) => {
+  res.json({ drivers: listDrivers() })
+})
+
+app.post('/api/drivers', (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Partial<NewDriver>
+  const missing = (['name', 'phone', 'hub'] as const).filter((field) => !String(body[field] ?? '').trim())
+  if (missing.length) {
+    return res.status(400).json({ error: 'bad_request', message: `Missing required field${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}.` })
+  }
+  const driver = createDriver({
+    name: String(body.name),
+    phone: String(body.phone),
+    hub: String(body.hub),
+    license: body.license ? String(body.license) : undefined,
+  })
+  res.status(201).json(driver)
+})
+
+app.get('/api/dispatches', (_req: Request, res: Response) => {
+  res.json({ dispatches: listDispatches() })
+})
+
+app.post('/api/dispatches', (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Partial<NewDispatch>
+  const missing = (['shipmentId', 'hub'] as const).filter((field) => !String(body[field] ?? '').trim())
+  if (missing.length) {
+    return res.status(400).json({ error: 'bad_request', message: `Missing required field${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}.` })
+  }
+  const dispatch = createDispatch({
+    shipmentId: String(body.shipmentId),
+    hub: String(body.hub),
+    vehicle: body.vehicle ? String(body.vehicle) : undefined,
+  }, currentUser(res))
+  if (!dispatch) return res.status(404).json({ error: 'not_found', message: 'No active shipment with that tracking ID.' })
+  res.status(201).json(dispatch)
 })
 
 /* ---------------------------------------------------------- conversations */

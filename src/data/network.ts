@@ -29,7 +29,7 @@ export type NewShipment = {
   service?: string
 }
 
-export type ActivityKind = 'delivered' | 'delay' | 'fuel' | 'driver' | 'booked' | 'checkin' | 'review'
+export type ActivityKind = 'delivered' | 'delay' | 'fuel' | 'driver' | 'booked' | 'checkin' | 'review' | 'dispatch'
 
 export type ActivityEntry = {
   id: number
@@ -56,6 +56,43 @@ export type FleetSnapshot = {
   hubs: string[]
 }
 
+export type DriverStatus = 'Available' | 'On route' | 'Off duty'
+
+export type Driver = {
+  id: number
+  name: string
+  phone: string
+  license: string
+  hub: string
+  status: DriverStatus
+  createdAt: string
+}
+
+/** What the add-driver form sends. */
+export type NewDriver = {
+  name: string
+  phone: string
+  hub: string
+  license?: string
+}
+
+/** A vehicle dispatched from a hub to carry a shipment. */
+export type Dispatch = {
+  id: number
+  shipmentId: string
+  hub: string
+  vehicle: string | null
+  dispatchedBy: string
+  createdAt: string
+}
+
+/** What the dispatch-vehicle form sends. */
+export type NewDispatch = {
+  shipmentId: string
+  hub: string
+  vehicle?: string
+}
+
 /**
  * The snapshot handed to the demo AI endpoints. Keeping it in one place means
  * the copilot, the briefing and the risk scorer all reason over the same
@@ -66,6 +103,8 @@ export type NetworkContext = {
   shipments: Shipment[]
   metrics: NetworkMetrics
   fleet: FleetSnapshot
+  drivers: Driver[]
+  dispatches: Dispatch[]
   activity: ActivityEntry[]
 }
 

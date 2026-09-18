@@ -1,4 +1,4 @@
-import type { ActivityEntry, Briefing, Conversation, NetworkContext, NewShipment, RiskAssessment, SearchResult, Shipment, StoredMessage, User } from '../data/network'
+import type { ActivityEntry, Briefing, Conversation, Dispatch, Driver, NetworkContext, NewDispatch, NewDriver, NewShipment, RiskAssessment, SearchResult, Shipment, StoredMessage, User } from '../data/network'
 
 export type { Briefing, ChatMessage, RiskAssessment, RiskLevel, SearchResult } from '../data/network'
 
@@ -70,6 +70,14 @@ export function createShipment(input: NewShipment) {
 
 export function markShipmentForReview(id: string) {
   return postJson<ActivityEntry>(`/api/shipments/${encodeURIComponent(id)}/review`, {})
+}
+
+export function createDriver(input: NewDriver) {
+  return postJson<Driver>('/api/drivers', input)
+}
+
+export function dispatchVehicle(input: NewDispatch) {
+  return postJson<Dispatch>('/api/dispatches', input)
 }
 
 /* ----------------------------------------------------------------- AI API */

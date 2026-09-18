@@ -58,8 +58,8 @@ the front end consumes, so it can be swapped for a real model later without touc
 
 The service uses Node's built-in `node:sqlite` module (Node 22.13+ / 24), so there is nothing
 native to compile. The database is created at `server/data/haulio.db` on first start and seeded
-with the two demo users, 12 sample shipments and 9 activity entries. Delete the file to reset
-the demo.
+with the two demo users, 5 drivers, 12 sample shipments and 9 activity entries. Delete the file
+to reset the demo.
 
 Tables:
 
@@ -68,12 +68,16 @@ Tables:
 | `users` | Demo accounts with scrypt password hashes |
 | `sessions` | Login sessions (token, user, expiry) behind the HttpOnly cookie |
 | `shipments` | Tracking ID, route, customer, ETA, progress, status, service level |
-| `activity` | The activity feed (deliveries, delays, bookings, reviews), linked to shipments |
+| `activity` | The activity feed (deliveries, delays, bookings, reviews, dispatches), linked to shipments |
+| `drivers` | The driver roster: name, phone, license class, home hub and status |
+| `dispatches` | Vehicles dispatched from a hub with a shipment, and who dispatched them |
 | `conversations` | Each user's saved assistant conversations |
 | `copilot_messages` | The messages inside each conversation |
 
 Creating a shipment in the UI inserts a row and logs a "Shipment booked" activity entry.
-"Mark for review" on a row logs a review entry. Both appear in the overview immediately.
+"Mark for review" on a row logs a review entry. "Dispatch vehicle" on the Fleet page inserts a
+dispatch row and logs a "Vehicle dispatched" entry. "Add driver" on the Drivers page inserts a
+roster row and logs a "Driver added" entry. All of them appear in the overview immediately.
 
 ## Pages
 
@@ -94,12 +98,15 @@ time.
   copy the tracking ID or mark the shipment for review.
 - **Fleet** - fleet control. Metrics for vehicles connected, vehicles in motion, hub coverage
   and utilization, a paginated "Vehicles in motion" list of undelivered shipments with their
-  risk badges (click one for the reason), a paginated hub list and a "Dispatch vehicle" dialog
-  that picks a hub and a shipment.
-- **Drivers** - driver operations. Metrics for active drivers, fleet connected, check-ins
-  today and items needing attention, a paginated "Latest check-ins" list built from driver and
-  check-in activity, a paginated driver-coverage-per-hub list and an "Add driver" dialog (name,
-  phone, license, hub).
+  risk badges (click one for the reason), a paginated hub list, a "Recent dispatches" log and a
+  "Dispatch vehicle" dialog that picks a hub, an active shipment and an optional vehicle ID.
+  Dispatching writes a row to SQLite, moves a shipment that was "At hub" to "In transit" and
+  logs a "Vehicle dispatched" activity entry.
+- **Drivers** - driver operations. Metrics for active drivers (from the roster in SQLite),
+  fleet connected, check-ins today and items needing attention, a paginated "Latest check-ins"
+  list built from driver and check-in activity, the paginated driver roster (name, hub, license,
+  phone, status) and an "Add driver" dialog (name, phone, license, hub). Adding a driver inserts
+  a roster row and logs a "Driver added" activity entry.
 - **Analytics** - network analytics. Total shipments, average progress, on-time rate and fleet
   utilization, a current-status breakdown (in transit / at hub / delivered) as bars, network
   signals, the paginated activity pulse and an "Export report" button that downloads the
@@ -114,8 +121,8 @@ time.
   AI assistant, settings, exports) and a "Contact support" form that opens your mail client
   with the subject and message filled in.
 
-The dispatch and add-driver dialogs are UI demos: they confirm the action on screen but do not
-write to SQLite. Creating a shipment and marking one for review do persist.
+Creating a shipment, marking one for review, dispatching a vehicle and adding a driver all
+write to SQLite and show up across the dashboard on the next refresh.
 
 ## Tech stack
 
@@ -173,11 +180,15 @@ POST   /api/auth/login                    {email, password, remember?} -> user, 
 POST   /api/auth/logout                   ends the session
 GET    /api/auth/me                       the signed-in user
 GET    /api/health                        engine name and database path
-GET    /api/snapshot                      shipments, metrics, fleet and activity in one payload
+GET    /api/snapshot                      shipments, metrics, fleet, drivers, dispatches and activity in one payload
 GET    /api/shipments                     all shipments
 POST   /api/shipments                     create a shipment {customer, origin, destination, eta, reference?, service?}
 POST   /api/shipments/:id/review          log a "marked for review" activity entry
 GET    /api/activity                      the activity feed
+GET    /api/drivers                       the driver roster
+POST   /api/drivers                       add a driver {name, phone, hub, license?}
+GET    /api/dispatches                    vehicles dispatched, newest first
+POST   /api/dispatches                    dispatch a vehicle {shipmentId, hub, vehicle?}
 GET    /api/conversations                 the user's saved conversations
 GET    /api/conversations/:id/messages    one conversation with its messages
 DELETE /api/conversations/:id             delete a conversation
@@ -196,7 +207,7 @@ server/
   auth.ts              scrypt password hashing, session tokens and cookie helpers
   db.ts                SQLite schema, migration, seeding, queries and the snapshot builder
   demoAi.ts            rule-based demo AI engine
-  seed.ts              demo users, sample shipments, activity and fleet figures
+  seed.ts              demo users, drivers, sample shipments, activity and fleet figures
   data/                haulio.db (created on first run, gitignored)
 src/
   App.tsx              login screen, sidebar shell and the Overview, Shipments, Fleet, Drivers,
