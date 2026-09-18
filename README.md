@@ -2,7 +2,8 @@
 
 A logistics operations dashboard built with React, TypeScript and Vite, with a built-in demo
 AI assistant and a SQLite database. It presents a fleet management workspace ("haul.io") with
-a login screen, a network overview and a shipments view.
+a login screen and pages for the network overview, shipments, fleet, drivers, analytics, routes,
+the AI assistant, settings and a help center.
 
 Everything runs locally. There is no external AI provider, no API key and nothing to sign up
 for: the AI features are a self-contained rules engine that reasons over the data in SQLite.
@@ -74,15 +75,47 @@ Tables:
 Creating a shipment in the UI inserts a row and logs a "Shipment booked" activity entry.
 "Mark for review" on a row logs a review entry. Both appear in the overview immediately.
 
-## Dashboard features
+## Pages
 
-- **Login screen** gating the dashboard
-- **Network summary** metrics computed from the database: active shipments, on-time rate, fleet utilization, items needing attention
-- **Live route overview** with an illustrated map, route lines, hub nodes and vehicle markers
-- **Active shipments** panel with status filters (All / In transit / At hub / Delivered) and sorting by ETA, progress or shipment ID
-- **Shipment volume** chart with selectable periods (this week / last week / this month)
-- **Activity feed** with pagination, fed from SQLite
-- **Shipments page** with search, filters, CSV export and a create-shipment dialog that writes to SQLite
+Every entry in the left sidebar opens a page. All pages read from the same network snapshot
+(shipments, metrics, fleet status and activity) and long lists are paginated five rows at a
+time.
+
+- **Overview** - the landing page after login. Network summary metrics computed from the
+  database (active shipments, on-time rate, fleet utilization, items needing attention), the AI
+  daily briefing, a live route overview with an illustrated map, route lines, hub nodes and
+  vehicle markers, the active shipments panel with status filters (All / In transit / At hub /
+  Delivered) and sorting by ETA, progress or shipment ID, a shipment volume chart with
+  selectable periods (this week / last week / this month) and the paginated activity feed.
+  Shipment rows have a menu to copy the tracking ID, and clicking a row's risk badge shows
+  the one-line reason behind the score.
+- **Shipments** - the full shipment table with natural-language search, status filters, CSV
+  export and a create-shipment dialog that writes to SQLite. Each row has an action menu to
+  copy the tracking ID or mark the shipment for review.
+- **Fleet** - fleet control. Metrics for vehicles connected, vehicles in motion, hub coverage
+  and utilization, a paginated "Vehicles in motion" list of undelivered shipments with their
+  risk badges (click one for the reason), a paginated hub list and a "Dispatch vehicle" dialog
+  that picks a hub and a shipment.
+- **Drivers** - driver operations. Metrics for active drivers, fleet connected, check-ins
+  today and items needing attention, a paginated "Latest check-ins" list built from driver and
+  check-in activity, a paginated driver-coverage-per-hub list and an "Add driver" dialog (name,
+  phone, license, hub).
+- **Analytics** - network analytics. Total shipments, average progress, on-time rate and fleet
+  utilization, a current-status breakdown (in transit / at hub / delivered) as bars, network
+  signals, the paginated activity pulse and an "Export report" button that downloads the
+  figures as CSV.
+- **Routes** - one row per origin-destination corridor, deduplicated from the shipments, with
+  customer, progress, ETA and status. Metrics for active routes and average progress, and an
+  export to CSV.
+- **AI Assistant** - the full-page chat described under "Where the AI is".
+- **Settings** - profile name and workspace plus notification toggles for risk alerts, driver
+  updates and the daily briefing. Saved per user in the browser's localStorage.
+- **Help center** - searchable help topics (getting started, shipments, fleet and drivers, the
+  AI assistant, settings, exports) and a "Contact support" form that opens your mail client
+  with the subject and message filled in.
+
+The dispatch and add-driver dialogs are UI demos: they confirm the action on screen but do not
+write to SQLite. Creating a shipment and marking one for review do persist.
 
 ## Tech stack
 
@@ -166,7 +199,8 @@ server/
   seed.ts              demo users, sample shipments, activity and fleet figures
   data/                haulio.db (created on first run, gitignored)
 src/
-  App.tsx              dashboard, shipments view and login screen
+  App.tsx              login screen, sidebar shell and the Overview, Shipments, Fleet, Drivers,
+                       Analytics, Routes, Settings and Help center pages
   App.css / ai.css     application styles and AI surface styles
   components/
     AssistantPage.tsx  full-page chat with saved conversations
