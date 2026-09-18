@@ -44,7 +44,7 @@
 .briefing-actions li::marker{color:var(--teal);font-weight:700}
 
 /* --- risk badge --- */
-.risk-badge{display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 8px;border-radius:999px;font:700 9.5px 'DM Sans';letter-spacing:.2px;white-space:nowrap;cursor:help}
+.risk-badge{display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 8px;border:0;border-radius:999px;font:700 9.5px 'DM Sans';letter-spacing:.2px;white-space:nowrap;cursor:pointer}
 .risk-badge i{width:5px;height:5px;border-radius:50%;background:currentColor}
 .risk-badge em{font-style:normal;opacity:.6}
 .risk-low{background:rgba(29,154,138,.1);color:#16776b}
