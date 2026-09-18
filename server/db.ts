@@ -27,11 +27,18 @@ db.exec(`
   PRAGMA foreign_keys = ON;
 `)
 
-// Version 1 stored copilot messages without users or conversations. Those
-// rows cannot be attributed to anyone, so they are dropped on upgrade.
-const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
-if (version > 0 && version < SCHEMA_VERSION) {
-  db.exec('DROP TABLE IF EXISTS copilot_messages')
+// Version 1 stored copilot messages without users or conversations (and never
+// set a user_version), so detect it by its columns. Those rows cannot be
+// attributed to anyone and are dropped on upgrade.
+const hasLegacyMessages = (() => {
+  const table = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'copilot_messages'`).get()
+  if (!table) return false
+  const columns = db.prepare('PRAGMA table_info(copilot_messages)').all() as unknown as { name: string }[]
+  return !columns.some((column) => column.name === 'conversation_id')
+})()
+if (hasLegacyMessages) {
+  db.exec('DROP TABLE copilot_messages')
+  console.log('[haul.io] Upgraded database schema: old copilot history discarded')
 }
 
 db.exec(`
