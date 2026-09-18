@@ -1,4 +1,4 @@
-import type { NetworkContext, ReportKind } from '../src/data/network'
+import type { NetworkContext, ReportKind, Shipment } from '../src/data/network'
 
 /**
  * Builds the CSV reports the dashboard can export. Each report is generated
@@ -8,6 +8,16 @@ import type { NetworkContext, ReportKind } from '../src/data/network'
 
 function toCsv(rows: (string | number)[][]): string {
   return rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n')
+}
+
+/** One row per origin-destination corridor, matching the Routes page's de-duplication. */
+function routesRows(context: NetworkContext): (string | number)[][] {
+  const byCorridor = new Map<string, Shipment>()
+  for (const shipment of context.shipments) byCorridor.set(`${shipment.origin}-${shipment.destination}`, shipment)
+  return [
+    ['Origin', 'Destination', 'Customer', 'Progress', 'ETA', 'Status'],
+    ...Array.from(byCorridor.values()).map((shipment) => [shipment.origin, shipment.destination, shipment.customer, `${shipment.progress}%`, shipment.eta, shipment.status]),
+  ]
 }
 
 function analyticsRows(context: NetworkContext): (string | number)[][] {
@@ -29,6 +39,7 @@ function analyticsRows(context: NetworkContext): (string | number)[][] {
 
 const BUILDERS: Record<ReportKind, { filename: string; rows: (context: NetworkContext) => (string | number)[][] }> = {
   analytics: { filename: 'haulio-analytics-report.csv', rows: analyticsRows },
+  routes: { filename: 'haulio-routes-report.csv', rows: routesRows },
 }
 
 export const REPORT_KINDS = Object.keys(BUILDERS) as ReportKind[]

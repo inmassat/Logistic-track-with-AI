@@ -6,7 +6,7 @@ import AssistantPage from './components/AssistantPage'
 import BriefingCard from './components/BriefingCard'
 import RiskBadge from './components/RiskBadge'
 import SmartSearch from './components/SmartSearch'
-import type { ActivityEntry, ActivityKind, NetworkContext, Shipment, ShipmentStatus, User } from './data/network'
+import type { ActivityEntry, ActivityKind, NetworkContext, ReportKind, Shipment, ShipmentStatus, User } from './data/network'
 import { AiError, fetchCurrentUser, login, logout, reportDownloadUrl } from './lib/ai'
 import type { RiskAssessment, SearchResult } from './lib/ai'
 import { greeting, longDate, shortDate, timeAgo } from './lib/format'
@@ -369,22 +369,11 @@ function AnalyticsPage({ network }: { network: NetworkContext }) {
     setExportNotice(message)
     window.setTimeout(() => setExportNotice(''), 3500)
   }
-  const { data: reports = [], isLoading: isLoadingReports } = useReports()
   const createReport = useCreateReport()
-  const [reportPage, setReportPage] = useState(1)
-  const reportPages = Math.max(1, Math.ceil(reports.length / SHIPMENTS_PAGE_SIZE))
-  const currentReportPage = Math.min(reportPage, reportPages)
-  const reportStart = (currentReportPage - 1) * SHIPMENTS_PAGE_SIZE
-  const visibleReports = reports.slice(reportStart, reportStart + SHIPMENTS_PAGE_SIZE)
   const exportReport = () => {
     createReport.mutate({ kind: 'analytics' }, {
       onSuccess: ({ report, csv }) => {
-        const link = document.createElement('a')
-        link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-        link.download = report.filename
-        link.click()
-        URL.revokeObjectURL(link.href)
-        setReportPage(1)
+        downloadCsv(csv, report.filename)
         notify(`Report #${report.id} exported and saved to the database`)
       },
       onError: (caught) => notify(caught.message),
@@ -393,9 +382,29 @@ function AnalyticsPage({ network }: { network: NetworkContext }) {
 
   return <div className="dashboard-content"><section className="page-intro"><div><p className="eyebrow"><span className="status-pulse" /> NETWORK INTELLIGENCE</p><h1>Analytics<span>.</span></h1><p className="intro-copy">Understand shipment performance and network activity at a glance.</p></div><button className="secondary-button" onClick={exportReport} disabled={createReport.isPending}>{createReport.isPending ? <Loader2 size={15} className="spinning" /> : <Download size={15} />} Export report</button></section>
     <section className="metric-grid" aria-label="Analytics summary"><Metric icon={<PackageCheck size={19} />} label="Total shipments" value={String(network.shipments.length)} detail="Across all statuses" trend="Tracked" tone="blue" /><Metric icon={<Gauge size={19} />} label="Average progress" value={`${averageProgress}%`} detail="Across all shipments" trend="Live" tone="teal" up /><Metric icon={<Check size={19} />} label="Delivered" value={String(delivered)} detail="Completed shipments" trend={`${Math.round(delivered / statusTotal * 100)}%`} tone="orange" /><Metric icon={<Activity size={19} />} label="Activity entries" value={String(network.activity.length)} detail="Logged in the network" trend="Updated" tone="red" /></section>
-    <section className="content-grid"><div className="main-column"><article className="panel chart-panel"><PanelHeading kicker="SHIPMENT MIX" title="Current status"><span className="footer-number">{network.shipments.length}</span></PanelHeading><div className="analytics-bars">{statusBars.map((item) => <div className="analytics-bar-row" key={item.label}><div className="analytics-bar-label"><span>{item.label}</span><strong>{item.value}</strong></div><div className="analytics-bar-track"><i className={item.tone} style={{ width: `${item.value / statusTotal * 100}%` }} /></div></div>)}</div></article><article className="panel activity-panel"><PanelHeading kicker="NETWORK PULSE" title="Recent activity"><span className="footer-number">{network.activity.length}</span></PanelHeading><div className="activity-list">{visiblePulse.map((entry) => <ActivityItem key={entry.id} icon={ACTIVITY_STYLE[entry.kind]?.icon ?? <Activity size={15} />} tone={ACTIVITY_STYLE[entry.kind]?.tone ?? 'blue'} title={entry.title} body={entry.body} time={timeAgo(entry.occurredAt)} />)}</div>{network.activity.length > SHIPMENTS_PAGE_SIZE && <div className="activity-pagination"><span>{pulseStart + 1}-{Math.min(pulseStart + SHIPMENTS_PAGE_SIZE, network.activity.length)} of {network.activity.length}</span><button disabled={currentPulsePage === 1} onClick={() => setPulsePage(currentPulsePage - 1)} aria-label="Previous network pulse page"><ChevronLeft size={14} /></button><strong>{currentPulsePage}</strong><button disabled={currentPulsePage >= pulsePages} onClick={() => setPulsePage(currentPulsePage + 1)} aria-label="Next network pulse page"><ChevronRight size={14} /></button></div>}</article></div><div className="side-column"><article className="panel activity-panel"><PanelHeading kicker="PERFORMANCE" title="Network signals"><div className="live-indicator"><span /> Live</div></PanelHeading><div className="analytics-signals"><div><span>On-time rate</span><strong>{network.metrics.onTimeRate.value}</strong><small>{network.metrics.onTimeRate.detail}</small></div><div><span>Fleet utilization</span><strong>{network.metrics.fleetUtilization.value}</strong><small>{network.metrics.fleetUtilization.detail}</small></div><div><span>Needs attention</span><strong>{network.metrics.needsAttention.value}</strong><small>{network.metrics.needsAttention.detail}</small></div></div></article><article className="panel activity-panel"><PanelHeading kicker="EXPORT HISTORY" title="Saved reports"><span className="footer-number">{reports.length}</span></PanelHeading><div className="activity-list">{visibleReports.map((report) => <div className="activity-item" key={report.id}><span className="activity-icon blue"><Download size={15} /></span><div><strong>Report #{report.id} · {report.kind}</strong><p>{report.rowCount} rows · {report.filename}</p></div><a className="report-download" href={reportDownloadUrl(report.id)} download={report.filename} title="Download again">{timeAgo(report.createdAt)} <Download size={12} /></a></div>)}{!isLoadingReports && reports.length === 0 && <div className="empty-state"><Download size={25} /><strong>No saved reports</strong><span>Export a report and it will be kept here for re-download.</span></div>}</div>{reports.length > SHIPMENTS_PAGE_SIZE && <div className="activity-pagination"><span>{reportStart + 1}-{Math.min(reportStart + SHIPMENTS_PAGE_SIZE, reports.length)} of {reports.length}</span><button disabled={currentReportPage === 1} onClick={() => setReportPage(currentReportPage - 1)} aria-label="Previous saved reports page"><ChevronLeft size={14} /></button><strong>{currentReportPage}</strong><button disabled={currentReportPage >= reportPages} onClick={() => setReportPage(currentReportPage + 1)} aria-label="Next saved reports page"><ChevronRight size={14} /></button></div>}</article></div></section>
+    <section className="content-grid"><div className="main-column"><article className="panel chart-panel"><PanelHeading kicker="SHIPMENT MIX" title="Current status"><span className="footer-number">{network.shipments.length}</span></PanelHeading><div className="analytics-bars">{statusBars.map((item) => <div className="analytics-bar-row" key={item.label}><div className="analytics-bar-label"><span>{item.label}</span><strong>{item.value}</strong></div><div className="analytics-bar-track"><i className={item.tone} style={{ width: `${item.value / statusTotal * 100}%` }} /></div></div>)}</div></article><article className="panel activity-panel"><PanelHeading kicker="NETWORK PULSE" title="Recent activity"><span className="footer-number">{network.activity.length}</span></PanelHeading><div className="activity-list">{visiblePulse.map((entry) => <ActivityItem key={entry.id} icon={ACTIVITY_STYLE[entry.kind]?.icon ?? <Activity size={15} />} tone={ACTIVITY_STYLE[entry.kind]?.tone ?? 'blue'} title={entry.title} body={entry.body} time={timeAgo(entry.occurredAt)} />)}</div>{network.activity.length > SHIPMENTS_PAGE_SIZE && <div className="activity-pagination"><span>{pulseStart + 1}-{Math.min(pulseStart + SHIPMENTS_PAGE_SIZE, network.activity.length)} of {network.activity.length}</span><button disabled={currentPulsePage === 1} onClick={() => setPulsePage(currentPulsePage - 1)} aria-label="Previous network pulse page"><ChevronLeft size={14} /></button><strong>{currentPulsePage}</strong><button disabled={currentPulsePage >= pulsePages} onClick={() => setPulsePage(currentPulsePage + 1)} aria-label="Next network pulse page"><ChevronRight size={14} /></button></div>}</article></div><div className="side-column"><article className="panel activity-panel"><PanelHeading kicker="PERFORMANCE" title="Network signals"><div className="live-indicator"><span /> Live</div></PanelHeading><div className="analytics-signals"><div><span>On-time rate</span><strong>{network.metrics.onTimeRate.value}</strong><small>{network.metrics.onTimeRate.detail}</small></div><div><span>Fleet utilization</span><strong>{network.metrics.fleetUtilization.value}</strong><small>{network.metrics.fleetUtilization.detail}</small></div><div><span>Needs attention</span><strong>{network.metrics.needsAttention.value}</strong><small>{network.metrics.needsAttention.detail}</small></div></div></article><SavedReportsPanel kind="analytics" /></div></section>
     {exportNotice && <div className="created-notice" role="status"><Check size={16} /> {exportNotice}</div>}
   </div>
+}
+/** Triggers a browser download of CSV text the server just generated. */
+function downloadCsv(csv: string, filename: string) {
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+/** The signed-in user's saved exports of one kind, from SQLite, each with a re-download link. */
+function SavedReportsPanel({ kind }: { kind: ReportKind }) {
+  const { data: allReports = [], isLoading } = useReports()
+  const reports = allReports.filter((report) => report.kind === kind)
+  const [page, setPage] = useState(1)
+  const pages = Math.max(1, Math.ceil(reports.length / SHIPMENTS_PAGE_SIZE))
+  const currentPage = Math.min(page, pages)
+  const start = (currentPage - 1) * SHIPMENTS_PAGE_SIZE
+  const visible = reports.slice(start, start + SHIPMENTS_PAGE_SIZE)
+  return <article className="panel activity-panel saved-reports-panel"><PanelHeading kicker="EXPORT HISTORY" title="Saved reports"><span className="footer-number">{reports.length}</span></PanelHeading><div className="activity-list">{visible.map((report) => <div className="activity-item" key={report.id}><span className="activity-icon blue"><Download size={15} /></span><div><strong>Report #{report.id} · {report.kind}</strong><p>{report.rowCount} rows · {report.filename}</p></div><a className="report-download" href={reportDownloadUrl(report.id)} download={report.filename} title="Download again">{timeAgo(report.createdAt)} <Download size={12} /></a></div>)}{!isLoading && reports.length === 0 && <div className="empty-state"><Download size={25} /><strong>No saved reports</strong><span>Export a report and it will be kept here for re-download.</span></div>}</div>{reports.length > SHIPMENTS_PAGE_SIZE && <div className="activity-pagination"><span>{start + 1}-{Math.min(start + SHIPMENTS_PAGE_SIZE, reports.length)} of {reports.length}</span><button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)} aria-label="Previous saved reports page"><ChevronLeft size={14} /></button><strong>{currentPage}</strong><button disabled={currentPage >= pages} onClick={() => setPage(currentPage + 1)} aria-label="Next saved reports page"><ChevronRight size={14} /></button></div>}</article>
 }
 function RoutesPage({ network }: { network: NetworkContext }) {
   const routes = Array.from(new globalThis.Map<string, Shipment>(network.shipments.map((shipment) => [`${shipment.origin}-${shipment.destination}`, shipment])).values())
@@ -407,21 +416,25 @@ function RoutesPage({ network }: { network: NetworkContext }) {
   const routeStart = (currentRoutePage - 1) * SHIPMENTS_PAGE_SIZE
   const visibleRoutes = routes.slice(routeStart, routeStart + SHIPMENTS_PAGE_SIZE)
   const [exportNotice, setExportNotice] = useState('')
+  const notify = (message: string) => {
+    setExportNotice(message)
+    window.setTimeout(() => setExportNotice(''), 3500)
+  }
+  const createReport = useCreateReport()
   const exportRoutes = () => {
-    const rows = [['Origin', 'Destination', 'Customer', 'Progress', 'ETA', 'Status'], ...routes.map((shipment) => [shipment.origin, shipment.destination, shipment.customer, `${shipment.progress}%`, shipment.eta, shipment.status])]
-    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n')
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    link.download = 'haulio-routes-report.csv'
-    link.click()
-    URL.revokeObjectURL(link.href)
-    setExportNotice('Routes report exported')
-    window.setTimeout(() => setExportNotice(''), 3000)
+    createReport.mutate({ kind: 'routes' }, {
+      onSuccess: ({ report, csv }) => {
+        downloadCsv(csv, report.filename)
+        notify(`Report #${report.id} exported and saved to the database`)
+      },
+      onError: (caught) => notify(caught.message),
+    })
   }
 
-  return <div className="dashboard-content"><section className="page-intro"><div><p className="eyebrow"><span className="status-pulse" /> ROUTE CONTROL</p><h1>Routes<span>.</span></h1><p className="intro-copy">Review active corridors, route progress, and delivery performance across your network.</p></div><button className="primary-button" onClick={exportRoutes}><Download size={15} /> Export routes</button></section>
+  return <div className="dashboard-content"><section className="page-intro"><div><p className="eyebrow"><span className="status-pulse" /> ROUTE CONTROL</p><h1>Routes<span>.</span></h1><p className="intro-copy">Review active corridors, route progress, and delivery performance across your network.</p></div><button className="primary-button" onClick={exportRoutes} disabled={createReport.isPending}>{createReport.isPending ? <Loader2 size={15} className="spinning" /> : <Download size={15} />} Export routes</button></section>
     <section className="metric-grid" aria-label="Route summary"><Metric icon={<Map size={19} />} label="Active routes" value={String(activeRoutes)} detail="Currently moving" trend="Live" tone="teal" up /><Metric icon={<Gauge size={19} />} label="Average progress" value={`${averageProgress}%`} detail="Across unique routes" trend="Tracked" tone="blue" /><Metric icon={<Truck size={19} />} label="Vehicles in motion" value={String(network.fleet.vehiclesInMotion)} detail="On active corridors" trend="Active" tone="orange" /><Metric icon={<Check size={19} />} label="On-time rate" value={network.metrics.onTimeRate.value} detail={network.metrics.onTimeRate.detail} trend={network.metrics.onTimeRate.trend} tone="red" /></section>
     <article className="panel activity-panel routes-panel"><PanelHeading kicker="NETWORK CORRIDORS" title="Active routes"><span className="footer-number">{routes.length}</span></PanelHeading><div className="route-list">{visibleRoutes.map((shipment) => <div className="route-card" key={`${shipment.origin}-${shipment.destination}`}><div className="route-card-head"><div><strong>{shipment.origin}</strong><ArrowRight size={15} /><strong>{shipment.destination}</strong></div><span className={`status status-${shipment.status.toLowerCase().replace(' ', '-')}`}>{shipment.status}</span></div><div className="route-card-meta"><span>{shipment.customer}</span><span>{shipment.eta}</span><strong>{shipment.progress}% complete</strong></div><div className="route-card-progress"><i style={{ width: `${shipment.progress}%`, backgroundColor: shipment.color }} /></div></div>)}{routes.length === 0 && <div className="empty-state"><Map size={25} /><strong>No routes available</strong><span>Routes will appear when shipments are added.</span></div>}</div>{routes.length > SHIPMENTS_PAGE_SIZE && <div className="activity-pagination"><span>{routeStart + 1}-{Math.min(routeStart + SHIPMENTS_PAGE_SIZE, routes.length)} of {routes.length}</span><button disabled={currentRoutePage === 1} onClick={() => setRoutePage(currentRoutePage - 1)} aria-label="Previous routes page"><ChevronLeft size={14} /></button><strong>{currentRoutePage}</strong><button disabled={currentRoutePage >= routePages} onClick={() => setRoutePage(currentRoutePage + 1)} aria-label="Next routes page"><ChevronRight size={14} /></button></div>}</article>
+    <SavedReportsPanel kind="routes" />
     {exportNotice && <div className="created-notice" role="status"><Check size={16} /> {exportNotice}</div>}
   </div>
 }

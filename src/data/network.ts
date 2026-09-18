@@ -140,7 +140,7 @@ export type SupportRequest = {
 /** What the contact-support form sends. */
 export type NewSupportRequest = { subject: string; message: string }
 
-export type ReportKind = 'analytics'
+export type ReportKind = 'analytics' | 'routes'
 
 /** A CSV report generated from the database and kept so it can be downloaded again. */
 export type Report = {

@@ -115,11 +115,12 @@ paginated five rows at a time.
   utilization, a current-status breakdown (in transit / at hub / delivered) as bars, network
   signals, the paginated activity pulse and an "Export report" button. The export is generated
   on the server from a fresh database read, saved to the `reports` table under the signed-in
-  user and downloaded as CSV. A paginated "Saved reports" panel lists every export with its
-  row count and a link to download it again.
+  user and downloaded as CSV. A paginated "Saved reports" panel lists the user's analytics
+  exports with their row counts and a link to download each one again.
 - **Routes** - one row per origin-destination corridor, deduplicated from the shipments, with
   customer, progress, ETA and status. Metrics for active routes and average progress, and an
-  export to CSV.
+  "Export routes" button that generates the corridor CSV on the server, saves it to the
+  `reports` table and downloads it, with its own "Saved reports" panel for re-downloads.
 - **AI Assistant** - the full-page chat described under "Where the AI is".
 - **Settings** - profile name and workspace plus notification toggles for risk alerts, driver
   updates and the daily briefing. Saved per user in SQLite: the name updates the account row
@@ -131,8 +132,8 @@ paginated five rows at a time.
   ticket number, status and when it was sent. Users only ever see their own requests.
 
 Creating a shipment, marking one for review, dispatching a vehicle, adding a driver, saving
-settings, contacting support and exporting an analytics report all write to SQLite and show
-up across the dashboard on the next refresh.
+settings, contacting support and exporting an analytics or routes report all write to SQLite
+and show up across the dashboard on the next refresh.
 
 ## Tech stack
 
@@ -194,7 +195,7 @@ PUT    /api/settings                      save {name, workspace, riskAlerts, dri
 GET    /api/support                       the user's support requests, newest first
 POST   /api/support                       send a support request {subject, message}
 GET    /api/reports                       the user's saved exports, newest first
-POST   /api/reports                       generate and save a report {kind: "analytics"} -> report, csv
+POST   /api/reports                       generate and save a report {kind: "analytics" | "routes"} -> report, csv
 GET    /api/reports/:id/download          the saved CSV as an attachment
 GET    /api/health                        engine name and database path
 GET    /api/snapshot                      shipments, metrics, fleet, drivers, dispatches and activity in one payload
