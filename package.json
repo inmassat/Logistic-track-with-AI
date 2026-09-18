@@ -15,13 +15,11 @@
     "check": "npm run lint && npm run check:server && npm run build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.126.0",
     "@hookform/resolvers": "^5.9.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@tanstack/react-query": "^5.102.8",
     "@tanstack/react-table": "^9.2.4",
     "date-fns": "^4.4.0",
-    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "lucide-react": "^1.45.0",
     "react": "^19.2.8",
@@ -48,5 +46,8 @@
     "typescript-eslint": "^8.69.0",
     "vite": "^8.3.0"
   },
-  "description": "Logistic-track with AI: a logistics operations dashboard with a Claude-powered ops copilot, daily briefing, delay-risk scoring and natural-language shipment search."
+  "description": "Logistic-track with AI: a logistics operations dashboard with a built-in demo AI (ops copilot, daily briefing, delay-risk scoring, natural-language search) backed by SQLite. No API key required.",
+  "engines": {
+    "node": ">=22.13"
+  }
 }

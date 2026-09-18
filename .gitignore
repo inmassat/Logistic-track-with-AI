@@ -23,6 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# Local environment
+# Local environment (optional: PORT, DATABASE_PATH)
 .env
 .env.local
+
+# SQLite database (created and seeded on first run)
+server/data/

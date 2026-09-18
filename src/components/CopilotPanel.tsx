@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ArrowUp, Sparkles, Square, X } from 'lucide-react'
-import { AiError, streamChat } from '../lib/ai'
+import { ArrowUp, Sparkles, Square, Trash2, X } from 'lucide-react'
+import { AiError, clearChatHistory, fetchChatHistory, streamChat } from '../lib/ai'
 import type { ChatMessage } from '../lib/ai'
 import type { NetworkContext } from '../data/network'
 
@@ -14,6 +14,7 @@ const SUGGESTIONS = [
 
 export default function CopilotPanel({ open, onClose, context }: { open: boolean; onClose: () => void; context: NetworkContext }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState('')
@@ -30,6 +31,20 @@ export default function CopilotPanel({ open, onClose, context }: { open: boolean
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+
+  // Restore the conversation saved in SQLite the first time the panel opens.
+  useEffect(() => {
+    if (!open || historyLoaded) return
+    let cancelled = false
+    fetchChatHistory()
+      .then((result) => {
+        if (cancelled) return
+        setMessages(result.messages.map(({ role, content }) => ({ role, content })))
+      })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setHistoryLoaded(true) })
+    return () => { cancelled = true }
+  }, [open, historyLoaded])
 
   // Drop any in-flight request if the panel closes or the view unmounts.
   useEffect(() => () => abortRef.current?.abort(), [])
@@ -72,6 +87,17 @@ export default function CopilotPanel({ open, onClose, context }: { open: boolean
     setStreaming(false)
   }
 
+  const clear = async () => {
+    stop()
+    setError('')
+    setMessages([])
+    try {
+      await clearChatHistory()
+    } catch (caught) {
+      setError(caught instanceof AiError ? caught.message : 'Could not clear the saved conversation.')
+    }
+  }
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     void ask(input)
@@ -84,16 +110,19 @@ export default function CopilotPanel({ open, onClose, context }: { open: boolean
       <header className="copilot-header">
         <div className="copilot-title">
           <span className="copilot-mark"><Sparkles size={15} /></span>
-          <div><strong id="copilot-title">Ops copilot</strong><small>Answers grounded in your live network</small></div>
+          <div><strong id="copilot-title">Ops copilot</strong><small>Demo assistant grounded in your live network</small></div>
         </div>
-        <button className="modal-close" type="button" onClick={onClose} aria-label="Close copilot"><X size={18} /></button>
+        <div className="copilot-header-actions">
+          {messages.length > 0 && <button className="modal-close" type="button" onClick={() => void clear()} aria-label="Clear conversation" title="Clear conversation"><Trash2 size={16} /></button>}
+          <button className="modal-close" type="button" onClick={onClose} aria-label="Close copilot"><X size={18} /></button>
+        </div>
       </header>
 
       <div className="copilot-scroll" ref={scrollRef}>
         {messages.length === 0 && <div className="copilot-empty">
           <span className="copilot-empty-mark"><Sparkles size={22} /></span>
           <strong>Ask about your network</strong>
-          <p>The copilot can see every shipment, metric and activity entry on this dashboard.</p>
+          <p>The copilot can see every shipment, metric and activity entry stored in the database.</p>
           <div className="copilot-suggestions">
             {SUGGESTIONS.map((suggestion) => <button key={suggestion} type="button" onClick={() => void ask(suggestion)}>{suggestion}</button>)}
           </div>

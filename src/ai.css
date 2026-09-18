@@ -111,3 +111,4 @@
   .copilot-panel{width:100%}
   .copilot-trigger{padding:0 11px}
 }
+.copilot-header-actions{display:flex;align-items:center;gap:4px}

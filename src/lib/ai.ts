@@ -1,17 +1,8 @@
-import type { NetworkContext } from '../data/network'
+import type { ActivityEntry, Briefing, ChatMessage, NetworkContext, NewShipment, RiskAssessment, SearchResult, Shipment } from '../data/network'
 
-export type ChatMessage = { role: 'user' | 'assistant'; content: string }
+export type { Briefing, ChatMessage, RiskAssessment, RiskLevel, SearchResult } from '../data/network'
 
-export type Briefing = {
-  headline: string
-  summary: string
-  highlights: { tone: 'positive' | 'warning' | 'critical' | 'neutral'; title: string; detail: string }[]
-  actions: string[]
-}
-
-export type RiskLevel = 'low' | 'medium' | 'high'
-export type RiskAssessment = { id: string; level: RiskLevel; score: number; reason: string }
-export type SearchResult = { status: string; matchingIds: string[]; interpretation: string }
+type ErrorPayload = { error?: string; message?: string } | null
 
 /** Thrown with a human-readable message the UI can show inline. */
 export class AiError extends Error {
@@ -22,23 +13,46 @@ export class AiError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+const OFFLINE_MESSAGE = 'Cannot reach the server. Is `npm run dev` (or `npm run dev:server`) running?'
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
+    response = await fetch(path, init)
   } catch {
-    throw new AiError('offline', 'Cannot reach the AI service. Is `npm run dev:server` running?')
+    throw new AiError('offline', OFFLINE_MESSAGE)
   }
   if (!response.ok) {
-    const detail = await response.json().catch(() => null)
-    throw new AiError(detail?.error ?? 'error', detail?.message ?? 'The AI service returned an error.')
+    const detail = (await response.json().catch(() => null)) as ErrorPayload
+    throw new AiError(detail?.error ?? 'error', detail?.message ?? 'The server returned an error.')
   }
-  return response.json() as Promise<T>
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
 }
+
+function postJson<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/* --------------------------------------------------------------- data API */
+
+export function fetchSnapshot() {
+  return request<NetworkContext>('/api/snapshot')
+}
+
+export function createShipment(input: NewShipment) {
+  return postJson<Shipment>('/api/shipments', input)
+}
+
+export function markShipmentForReview(id: string) {
+  return postJson<ActivityEntry>(`/api/shipments/${encodeURIComponent(id)}/review`, {})
+}
+
+/* ----------------------------------------------------------------- AI API */
 
 export function fetchBriefing(context: NetworkContext) {
   return postJson<Briefing>('/api/briefing', { context })
@@ -52,11 +66,19 @@ export function fetchSearch(query: string, context: NetworkContext) {
   return postJson<SearchResult>('/api/search', { query, context })
 }
 
-export async function checkHealth(): Promise<{ ok: boolean; configured: boolean }> {
+export function fetchChatHistory() {
+  return request<{ messages: (ChatMessage & { id: number; createdAt: string })[] }>('/api/chat/history')
+}
+
+export function clearChatHistory() {
+  return request<void>('/api/chat/history', { method: 'DELETE' })
+}
+
+export async function checkHealth(): Promise<{ ok: boolean; configured: boolean; engine?: string }> {
   try {
     const response = await fetch('/api/health')
     if (!response.ok) return { ok: false, configured: false }
-    return await response.json()
+    return (await response.json()) as { ok: boolean; configured: boolean; engine?: string }
   } catch {
     return { ok: false, configured: false }
   }
@@ -82,11 +104,11 @@ export async function streamChat(
     })
   } catch (error) {
     if ((error as Error)?.name === 'AbortError') return
-    throw new AiError('offline', 'Cannot reach the AI service. Is `npm run dev:server` running?')
+    throw new AiError('offline', OFFLINE_MESSAGE)
   }
 
   if (!response.ok) {
-    const detail = await response.json().catch(() => null)
+    const detail = (await response.json().catch(() => null)) as ErrorPayload
     throw new AiError(detail?.error ?? 'error', detail?.message ?? 'The copilot is unavailable.')
   }
   if (!response.body) throw new AiError('error', 'The copilot returned an empty response.')
@@ -95,26 +117,31 @@ export async function streamChat(
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
 
-    // SSE frames are separated by a blank line; keep the trailing partial frame.
-    const frames = buffer.split('\n\n')
-    buffer = frames.pop() ?? ''
+      // SSE frames are separated by a blank line; keep the trailing partial frame.
+      const frames = buffer.split('\n\n')
+      buffer = frames.pop() ?? ''
 
-    for (const frame of frames) {
-      const eventLine = frame.split('\n').find((line) => line.startsWith('event: '))
-      const dataLine = frame.split('\n').find((line) => line.startsWith('data: '))
-      if (!eventLine || !dataLine) continue
+      for (const frame of frames) {
+        const eventLine = frame.split('\n').find((line) => line.startsWith('event: '))
+        const dataLine = frame.split('\n').find((line) => line.startsWith('data: '))
+        if (!eventLine || !dataLine) continue
 
-      const event = eventLine.slice(7).trim()
-      const payload = JSON.parse(dataLine.slice(6))
+        const event = eventLine.slice(7).trim()
+        const payload = JSON.parse(dataLine.slice(6))
 
-      if (event === 'delta') onDelta(payload.text)
-      if (event === 'error') throw new AiError('stream', payload.message)
-      if (event === 'done') return
+        if (event === 'delta') onDelta(payload.text)
+        if (event === 'error') throw new AiError('stream', payload.message)
+        if (event === 'done') return
+      }
     }
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') return
+    throw error
   }
 }
