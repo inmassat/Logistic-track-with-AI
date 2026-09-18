@@ -83,9 +83,10 @@ roster row and logs a "Driver added" entry. All of them appear in the overview i
 
 ## Pages
 
-Every entry in the left sidebar opens a page. All pages read from the same network snapshot
-(shipments, metrics, fleet status and activity) and long lists are paginated five rows at a
-time.
+Every entry in the left sidebar opens a page. The operational pages all read from the same
+network snapshot (shipments, metrics, fleet status, drivers, dispatches and activity), the
+Settings and Help center pages load the signed-in user's own rows, and long lists are
+paginated five rows at a time.
 
 - **Overview** - the landing page after login. Network summary metrics computed from the
   database (active shipments, on-time rate, fleet utilization, items needing attention), the AI
@@ -213,7 +214,8 @@ POST   /api/search                        natural-language search {query}
 
 ```
 server/
-  index.ts             Express API: auth, data, assistant, briefing, risk and search endpoints
+  index.ts             Express API: auth, shipments, drivers, dispatches, settings, support,
+                       assistant, briefing, risk and search endpoints
   auth.ts              scrypt password hashing, session tokens and cookie helpers
   db.ts                SQLite schema, migration, seeding, queries and the snapshot builder
   demoAi.ts            rule-based demo AI engine
@@ -228,15 +230,19 @@ src/
     BriefingCard.tsx   AI daily briefing
     RiskBadge.tsx      delay-risk badge on shipment rows
     SmartSearch.tsx    natural-language shipment search
-  data/network.ts      shared types for shipments, activity, the snapshot and AI results
+  data/network.ts      shared types for shipments, drivers, dispatches, activity, settings,
+                       support requests, the snapshot and AI results
   lib/ai.ts            typed API client (fetch + SSE parsing)
-  lib/useNetwork.ts    TanStack Query hooks for the snapshot and mutations
+  lib/useNetwork.ts    TanStack Query hooks for the snapshot, settings, support requests,
+                       conversations and every mutation
+  lib/useRiskAssessments.ts  delay-risk scores for the shipments on screen
   lib/format.ts        date and relative-time helpers
 public/                favicon and icon sprite
 ```
 
 ## Notes
 
-The shipment volume chart and the fleet-level figures
-(on-time rate, utilization, vehicle counts) are illustrative constants in `server/seed.ts`;
-everything about shipments and activity is real data from SQLite.
+The shipment volume chart and the fleet-level figures (on-time rate, utilization, vehicle
+counts, hub list) are illustrative constants in `server/seed.ts`. Shipments, activity, drivers,
+dispatches, user settings, support requests and assistant conversations are all real data
+from SQLite.
