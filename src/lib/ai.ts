@@ -1,4 +1,4 @@
-import type { ActivityEntry, Briefing, Conversation, Dispatch, Driver, NetworkContext, NewDispatch, NewDriver, NewShipment, NewSupportRequest, RiskAssessment, SearchResult, SettingsInput, Shipment, StoredMessage, SupportRequest, User, UserSettings } from '../data/network'
+import type { ActivityEntry, Briefing, Conversation, Dispatch, Driver, NetworkContext, NewDispatch, NewDriver, NewReport, NewShipment, NewSupportRequest, Report, RiskAssessment, SearchResult, SettingsInput, Shipment, StoredMessage, SupportRequest, User, UserSettings } from '../data/network'
 
 export type { Briefing, ChatMessage, RiskAssessment, RiskLevel, SearchResult } from '../data/network'
 
@@ -86,6 +86,19 @@ export function fetchSupportRequests() {
 
 export function createSupportRequest(input: NewSupportRequest) {
   return postJson<SupportRequest>('/api/support', input)
+}
+
+export function fetchReports() {
+  return request<{ reports: Report[] }>('/api/reports')
+}
+
+export function createReport(input: NewReport) {
+  return postJson<{ report: Report; csv: string }>('/api/reports', input)
+}
+
+/** Where a saved report can be downloaded again (same-origin, so the session cookie applies). */
+export function reportDownloadUrl(id: number) {
+  return `/api/reports/${id}/download`
 }
 
 export function fetchSettings() {

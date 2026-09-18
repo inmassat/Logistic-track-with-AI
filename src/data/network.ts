@@ -140,6 +140,20 @@ export type SupportRequest = {
 /** What the contact-support form sends. */
 export type NewSupportRequest = { subject: string; message: string }
 
+export type ReportKind = 'analytics'
+
+/** A CSV report generated from the database and kept so it can be downloaded again. */
+export type Report = {
+  id: number
+  kind: ReportKind
+  filename: string
+  rowCount: number
+  createdAt: string
+}
+
+/** What the export button sends. */
+export type NewReport = { kind: ReportKind }
+
 export type Conversation = { id: number; title: string; createdAt: string; updatedAt: string }
 
 export type StoredMessage = { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }

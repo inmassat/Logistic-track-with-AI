@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createDriver, createShipment, createSupportRequest, deleteConversation, dispatchVehicle, fetchConversations, fetchSettings, fetchSnapshot, fetchSupportRequests, markShipmentForReview, saveSettings } from './ai'
+import { createDriver, createReport, createShipment, createSupportRequest, deleteConversation, dispatchVehicle, fetchConversations, fetchReports, fetchSettings, fetchSnapshot, fetchSupportRequests, markShipmentForReview, saveSettings } from './ai'
 
 export const SNAPSHOT_KEY = ['snapshot'] as const
 export const CONVERSATIONS_KEY = ['conversations'] as const
 export const SETTINGS_KEY = ['settings'] as const
 export const SUPPORT_KEY = ['support'] as const
+export const REPORTS_KEY = ['reports'] as const
 
 /**
  * Loads the network snapshot (shipments, metrics, fleet and activity) from
@@ -80,6 +81,23 @@ export function useCreateSupportRequest() {
   return useMutation({
     mutationFn: createSupportRequest,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: SUPPORT_KEY }),
+  })
+}
+
+/** The signed-in user's saved CSV exports, newest first. */
+export function useReports() {
+  return useQuery({
+    queryKey: REPORTS_KEY,
+    queryFn: fetchReports,
+    select: (result) => result.reports,
+  })
+}
+
+export function useCreateReport() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: createReport,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: REPORTS_KEY }),
   })
 }
 

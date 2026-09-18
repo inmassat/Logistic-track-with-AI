@@ -3,9 +3,10 @@ import type { NextFunction, Request, Response } from 'express'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ChatMessage, NetworkContext, NewDispatch, NewDriver, NewShipment, NewSupportRequest, SettingsInput, User } from '../src/data/network'
+import type { ChatMessage, NetworkContext, NewDispatch, NewDriver, NewReport, NewShipment, NewSupportRequest, ReportKind, SettingsInput, User } from '../src/data/network'
 import { REMEMBERED_SESSION_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, clearedSessionCookie, newSessionToken, parseCookies, sessionCookie, verifyPassword } from './auth'
-import { DB_PATH, addMessage, createConversation, createDispatch, createDriver, createSession, createShipment, createSupportRequest, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, getUserSettings, listActivity, listConversations, listDispatches, listDrivers, listMessages, listShipments, listSupportRequests, markShipmentForReview, saveUserSettings } from './db'
+import { DB_PATH, addMessage, createConversation, createDispatch, createDriver, createReport, createSession, createShipment, createSupportRequest, deleteConversation, deleteSession, findUserByEmail, getConversation, getReport, getSessionUser, getSnapshot, getUserSettings, listActivity, listConversations, listDispatches, listDrivers, listMessages, listReports, listShipments, listSupportRequests, markShipmentForReview, saveUserSettings } from './db'
+import { REPORT_KINDS, buildReport } from './reports'
 import { ENGINE, answerQuestion, assessRisk, buildBriefing, searchShipments } from './demoAi'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -91,6 +92,32 @@ app.post('/api/support', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'bad_request', message: 'Keep the subject under 120 characters and the message under 4000.' })
   }
   res.status(201).json(createSupportRequest(currentUser(res).id, { subject, message }))
+})
+
+/* ---------------------------------------------------------------- reports */
+
+app.get('/api/reports', (_req: Request, res: Response) => {
+  res.json({ reports: listReports(currentUser(res).id) })
+})
+
+/** Generates a CSV from a fresh snapshot, stores it, and returns it with its metadata. */
+app.post('/api/reports', (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Partial<NewReport>
+  const kind = String(body.kind ?? '') as ReportKind
+  if (!REPORT_KINDS.includes(kind)) {
+    return res.status(400).json({ error: 'bad_request', message: `Unknown report kind. Expected one of: ${REPORT_KINDS.join(', ')}.` })
+  }
+  const { filename, csv, rowCount } = buildReport(kind, getSnapshot())
+  const report = createReport(currentUser(res).id, kind, filename, rowCount, csv)
+  res.status(201).json({ report, csv })
+})
+
+app.get('/api/reports/:id/download', (req: Request, res: Response) => {
+  const report = getReport(Number(req.params.id), currentUser(res).id)
+  if (!report) return res.status(404).json({ error: 'not_found', message: 'Report not found.' })
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="${report.filename}"`)
+  res.send(report.content)
 })
 
 app.get('/api/health', (_req: Request, res: Response) => {

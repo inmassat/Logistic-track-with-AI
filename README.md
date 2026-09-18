@@ -69,6 +69,7 @@ Tables:
 | `sessions` | Login sessions (token, user, expiry) behind the HttpOnly cookie |
 | `user_settings` | Each user's workspace name and notification preferences |
 | `support_requests` | Help-center requests (subject, message, status), linked to the user who sent them |
+| `reports` | Saved CSV exports (kind, filename, row count and the CSV itself), linked to the user who exported them |
 | `shipments` | Tracking ID, route, customer, ETA, progress, status, service level |
 | `activity` | The activity feed (deliveries, delays, bookings, reviews, dispatches), linked to shipments |
 | `drivers` | The driver roster: name, phone, license class, home hub and status |
@@ -112,8 +113,10 @@ paginated five rows at a time.
   a roster row and logs a "Driver added" activity entry.
 - **Analytics** - network analytics. Total shipments, average progress, on-time rate and fleet
   utilization, a current-status breakdown (in transit / at hub / delivered) as bars, network
-  signals, the paginated activity pulse and an "Export report" button that downloads the
-  figures as CSV.
+  signals, the paginated activity pulse and an "Export report" button. The export is generated
+  on the server from a fresh database read, saved to the `reports` table under the signed-in
+  user and downloaded as CSV. A paginated "Saved reports" panel lists every export with its
+  row count and a link to download it again.
 - **Routes** - one row per origin-destination corridor, deduplicated from the shipments, with
   customer, progress, ETA and status. Metrics for active routes and average progress, and an
   export to CSV.
@@ -128,8 +131,8 @@ paginated five rows at a time.
   ticket number, status and when it was sent. Users only ever see their own requests.
 
 Creating a shipment, marking one for review, dispatching a vehicle, adding a driver, saving
-settings and contacting support all write to SQLite and show up across the dashboard on the
-next refresh.
+settings, contacting support and exporting an analytics report all write to SQLite and show
+up across the dashboard on the next refresh.
 
 ## Tech stack
 
@@ -190,6 +193,9 @@ GET    /api/settings                      the user's preferences (defaults until
 PUT    /api/settings                      save {name, workspace, riskAlerts, driverUpdates, dailyBriefing} -> user, settings
 GET    /api/support                       the user's support requests, newest first
 POST   /api/support                       send a support request {subject, message}
+GET    /api/reports                       the user's saved exports, newest first
+POST   /api/reports                       generate and save a report {kind: "analytics"} -> report, csv
+GET    /api/reports/:id/download          the saved CSV as an attachment
 GET    /api/health                        engine name and database path
 GET    /api/snapshot                      shipments, metrics, fleet, drivers, dispatches and activity in one payload
 GET    /api/shipments                     all shipments
@@ -215,10 +221,11 @@ POST   /api/search                        natural-language search {query}
 ```
 server/
   index.ts             Express API: auth, shipments, drivers, dispatches, settings, support,
-                       assistant, briefing, risk and search endpoints
+                       reports, assistant, briefing, risk and search endpoints
   auth.ts              scrypt password hashing, session tokens and cookie helpers
   db.ts                SQLite schema, migration, seeding, queries and the snapshot builder
   demoAi.ts            rule-based demo AI engine
+  reports.ts           builds the CSV exports from a network snapshot
   seed.ts              demo users, drivers, sample shipments, activity and fleet figures
   data/                haulio.db (created on first run, gitignored)
 src/
@@ -231,10 +238,10 @@ src/
     RiskBadge.tsx      delay-risk badge on shipment rows
     SmartSearch.tsx    natural-language shipment search
   data/network.ts      shared types for shipments, drivers, dispatches, activity, settings,
-                       support requests, the snapshot and AI results
+                       support requests, reports, the snapshot and AI results
   lib/ai.ts            typed API client (fetch + SSE parsing)
   lib/useNetwork.ts    TanStack Query hooks for the snapshot, settings, support requests,
-                       conversations and every mutation
+                       reports, conversations and every mutation
   lib/useRiskAssessments.ts  delay-risk scores for the shipments on screen
   lib/format.ts        date and relative-time helpers
 public/                favicon and icon sprite
@@ -244,5 +251,5 @@ public/                favicon and icon sprite
 
 The shipment volume chart and the fleet-level figures (on-time rate, utilization, vehicle
 counts, hub list) are illustrative constants in `server/seed.ts`. Shipments, activity, drivers,
-dispatches, user settings, support requests and assistant conversations are all real data
-from SQLite.
+dispatches, user settings, support requests, saved reports and assistant conversations are all
+real data from SQLite.

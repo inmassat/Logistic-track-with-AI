@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ActivityEntry, ActivityKind, Conversation, Dispatch, Driver, DriverStatus, NetworkContext, NetworkMetrics, NewDispatch, NewDriver, NewShipment, NewSupportRequest, SettingsInput, Shipment, ShipmentStatus, StoredMessage, SupportRequest, SupportStatus, User, UserSettings } from '../src/data/network'
+import type { ActivityEntry, ActivityKind, Conversation, Dispatch, Driver, DriverStatus, NetworkContext, NetworkMetrics, NewDispatch, NewDriver, NewShipment, NewSupportRequest, Report, ReportKind, SettingsInput, Shipment, ShipmentStatus, StoredMessage, SupportRequest, SupportStatus, User, UserSettings } from '../src/data/network'
 import { hashPassword } from './auth'
 import { FLEET, SEED_ACTIVITY, SEED_DRIVERS, SEED_SHIPMENTS, SEED_USERS } from './seed'
 
@@ -13,7 +13,7 @@ import { FLEET, SEED_ACTIVITY, SEED_DRIVERS, SEED_SHIPMENTS, SEED_USERS } from '
  * created.
  */
 
-const SCHEMA_VERSION = 5
+const SCHEMA_VERSION = 6
 
 const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -134,7 +134,18 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS reports (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    filename   TEXT NOT NULL,
+    row_count  INTEGER NOT NULL,
+    content    TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS activity_occurred_at ON activity(occurred_at DESC);
+  CREATE INDEX IF NOT EXISTS reports_user ON reports(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS support_requests_user ON support_requests(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS dispatches_created_at ON dispatches(created_at DESC);
   CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
@@ -311,6 +322,33 @@ export function createSupportRequest(userId: number, input: NewSupportRequest): 
   const createdAt = nowIso()
   const result = db.prepare('INSERT INTO support_requests (user_id, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, subject, message, 'Open', createdAt)
   return { id: Number(result.lastInsertRowid), subject, message, status: 'Open', createdAt }
+}
+
+/* ------------------------------------------------------------------ reports */
+
+type ReportRow = { id: number; kind: ReportKind; filename: string; row_count: number; created_at: string }
+
+function toReport(row: ReportRow): Report {
+  return { id: row.id, kind: row.kind, filename: row.filename, rowCount: row.row_count, createdAt: row.created_at }
+}
+
+/** The user's saved exports, newest first (without the CSV itself). */
+export function listReports(userId: number): Report[] {
+  const rows = db.prepare('SELECT id, kind, filename, row_count, created_at FROM reports WHERE user_id = ? ORDER BY created_at DESC, id DESC').all(userId) as unknown as ReportRow[]
+  return rows.map(toReport)
+}
+
+/** Stores a generated CSV so it can be downloaded again later. */
+export function createReport(userId: number, kind: ReportKind, filename: string, rowCount: number, content: string): Report {
+  const createdAt = nowIso()
+  const result = db.prepare('INSERT INTO reports (user_id, kind, filename, row_count, content, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(userId, kind, filename, rowCount, content, createdAt)
+  return { id: Number(result.lastInsertRowid), kind, filename, rowCount, createdAt }
+}
+
+/** A saved report with its CSV, only if it belongs to the user. */
+export function getReport(id: number, userId: number): (Report & { content: string }) | null {
+  const row = db.prepare('SELECT id, kind, filename, row_count, content, created_at FROM reports WHERE id = ? AND user_id = ?').get(id, userId) as unknown as (ReportRow & { content: string }) | undefined
+  return row ? { ...toReport(row), content: row.content } : null
 }
 
 /* ---------------------------------------------------------------- shipments */
