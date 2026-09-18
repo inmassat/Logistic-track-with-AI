@@ -112,6 +112,20 @@ export type NetworkContext = {
 
 export type User = { id: number; email: string; name: string; role: string }
 
+/** Per-user workspace preferences, stored in SQLite alongside the account. */
+export type UserSettings = {
+  name: string
+  workspace: string
+  riskAlerts: boolean
+  driverUpdates: boolean
+  dailyBriefing: boolean
+  /** null until the user has saved settings at least once */
+  updatedAt: string | null
+}
+
+/** What the settings form sends. */
+export type SettingsInput = Omit<UserSettings, 'updatedAt'>
+
 export type Conversation = { id: number; title: string; createdAt: string; updatedAt: string }
 
 export type StoredMessage = { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }

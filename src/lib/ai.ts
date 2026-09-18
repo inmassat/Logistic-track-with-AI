@@ -1,4 +1,4 @@
-import type { ActivityEntry, Briefing, Conversation, Dispatch, Driver, NetworkContext, NewDispatch, NewDriver, NewShipment, RiskAssessment, SearchResult, Shipment, StoredMessage, User } from '../data/network'
+import type { ActivityEntry, Briefing, Conversation, Dispatch, Driver, NetworkContext, NewDispatch, NewDriver, NewShipment, RiskAssessment, SearchResult, SettingsInput, Shipment, StoredMessage, User, UserSettings } from '../data/network'
 
 export type { Briefing, ChatMessage, RiskAssessment, RiskLevel, SearchResult } from '../data/network'
 
@@ -78,6 +78,18 @@ export function createDriver(input: NewDriver) {
 
 export function dispatchVehicle(input: NewDispatch) {
   return postJson<Dispatch>('/api/dispatches', input)
+}
+
+export function fetchSettings() {
+  return request<UserSettings>('/api/settings')
+}
+
+export function saveSettings(input: SettingsInput) {
+  return request<{ user: User; settings: UserSettings }>('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
 }
 
 /* ----------------------------------------------------------------- AI API */

@@ -3,9 +3,9 @@ import type { NextFunction, Request, Response } from 'express'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ChatMessage, NetworkContext, NewDispatch, NewDriver, NewShipment, User } from '../src/data/network'
+import type { ChatMessage, NetworkContext, NewDispatch, NewDriver, NewShipment, SettingsInput, User } from '../src/data/network'
 import { REMEMBERED_SESSION_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, clearedSessionCookie, newSessionToken, parseCookies, sessionCookie, verifyPassword } from './auth'
-import { DB_PATH, addMessage, createConversation, createDispatch, createDriver, createSession, createShipment, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, listActivity, listConversations, listDispatches, listDrivers, listMessages, listShipments, markShipmentForReview } from './db'
+import { DB_PATH, addMessage, createConversation, createDispatch, createDriver, createSession, createShipment, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, getUserSettings, listActivity, listConversations, listDispatches, listDrivers, listMessages, listShipments, markShipmentForReview, saveUserSettings } from './db'
 import { ENGINE, answerQuestion, assessRisk, buildBriefing, searchShipments } from './demoAi'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -55,6 +55,25 @@ app.post('/api/auth/logout', (_req: Request, res: Response) => {
 
 app.get('/api/auth/me', (_req: Request, res: Response) => {
   res.json(currentUser(res))
+})
+
+app.get('/api/settings', (_req: Request, res: Response) => {
+  res.json(getUserSettings(currentUser(res)))
+})
+
+app.put('/api/settings', (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Partial<SettingsInput>
+  const input: SettingsInput = {
+    name: String(body.name ?? ''),
+    workspace: String(body.workspace ?? ''),
+    riskAlerts: body.riskAlerts !== false,
+    driverUpdates: body.driverUpdates !== false,
+    dailyBriefing: body.dailyBriefing !== false,
+  }
+  if (input.name.length > 80 || input.workspace.length > 80) {
+    return res.status(400).json({ error: 'bad_request', message: 'Name and workspace must be 80 characters or fewer.' })
+  }
+  res.json(saveUserSettings(currentUser(res), input))
 })
 
 app.get('/api/health', (_req: Request, res: Response) => {

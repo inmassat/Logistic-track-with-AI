@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ActivityEntry, ActivityKind, Conversation, Dispatch, Driver, DriverStatus, NetworkContext, NetworkMetrics, NewDispatch, NewDriver, NewShipment, Shipment, ShipmentStatus, StoredMessage, User } from '../src/data/network'
+import type { ActivityEntry, ActivityKind, Conversation, Dispatch, Driver, DriverStatus, NetworkContext, NetworkMetrics, NewDispatch, NewDriver, NewShipment, SettingsInput, Shipment, ShipmentStatus, StoredMessage, User, UserSettings } from '../src/data/network'
 import { hashPassword } from './auth'
 import { FLEET, SEED_ACTIVITY, SEED_DRIVERS, SEED_SHIPMENTS, SEED_USERS } from './seed'
 
@@ -13,7 +13,7 @@ import { FLEET, SEED_ACTIVITY, SEED_DRIVERS, SEED_SHIPMENTS, SEED_USERS } from '
  * created.
  */
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -114,6 +114,15 @@ db.exec(`
     vehicle       TEXT,
     dispatched_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at    TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS user_settings (
+    user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    workspace      TEXT NOT NULL,
+    risk_alerts    INTEGER NOT NULL DEFAULT 1,
+    driver_updates INTEGER NOT NULL DEFAULT 1,
+    daily_briefing INTEGER NOT NULL DEFAULT 1,
+    updated_at     TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS activity_occurred_at ON activity(occurred_at DESC);
@@ -218,6 +227,58 @@ export function getSessionUser(token: string): User | null {
 
 export function deleteSession(token: string): void {
   db.prepare('DELETE FROM sessions WHERE token = ?').run(token)
+}
+
+/* ----------------------------------------------------------- user settings */
+
+const DEFAULT_WORKSPACE = 'Atlas Haulage'
+
+type SettingsRow = { workspace: string; risk_alerts: number; driver_updates: number; daily_briefing: number; updated_at: string }
+
+/** The user's saved preferences, or the defaults if they have never saved. */
+export function getUserSettings(user: User): UserSettings {
+  const row = db.prepare('SELECT workspace, risk_alerts, driver_updates, daily_briefing, updated_at FROM user_settings WHERE user_id = ?').get(user.id) as unknown as SettingsRow | undefined
+  if (!row) return { name: user.name, workspace: DEFAULT_WORKSPACE, riskAlerts: true, driverUpdates: true, dailyBriefing: true, updatedAt: null }
+  return {
+    name: user.name,
+    workspace: row.workspace,
+    riskAlerts: row.risk_alerts === 1,
+    driverUpdates: row.driver_updates === 1,
+    dailyBriefing: row.daily_briefing === 1,
+    updatedAt: row.updated_at,
+  }
+}
+
+/**
+ * Upserts the user's preferences. The display name lives on the users row so
+ * the header greeting, sessions and dispatch attribution all pick it up.
+ * Returns the updated user together with the saved settings.
+ */
+export function saveUserSettings(user: User, input: SettingsInput): { user: User; settings: UserSettings } {
+  const name = input.name.trim() || user.name
+  const workspace = input.workspace.trim() || DEFAULT_WORKSPACE
+  const updatedAt = nowIso()
+
+  db.exec('BEGIN')
+  try {
+    db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, user.id)
+    db.prepare(`
+      INSERT INTO user_settings (user_id, workspace, risk_alerts, driver_updates, daily_briefing, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        workspace = excluded.workspace,
+        risk_alerts = excluded.risk_alerts,
+        driver_updates = excluded.driver_updates,
+        daily_briefing = excluded.daily_briefing,
+        updated_at = excluded.updated_at
+    `).run(user.id, workspace, input.riskAlerts ? 1 : 0, input.driverUpdates ? 1 : 0, input.dailyBriefing ? 1 : 0, updatedAt)
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  const updatedUser = { ...user, name }
+  return { user: updatedUser, settings: getUserSettings(updatedUser) }
 }
 
 /* ---------------------------------------------------------------- shipments */

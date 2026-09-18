@@ -67,6 +67,7 @@ Tables:
 | --- | --- |
 | `users` | Demo accounts with scrypt password hashes |
 | `sessions` | Login sessions (token, user, expiry) behind the HttpOnly cookie |
+| `user_settings` | Each user's workspace name and notification preferences |
 | `shipments` | Tracking ID, route, customer, ETA, progress, status, service level |
 | `activity` | The activity feed (deliveries, delays, bookings, reviews, dispatches), linked to shipments |
 | `drivers` | The driver roster: name, phone, license class, home hub and status |
@@ -116,13 +117,15 @@ time.
   export to CSV.
 - **AI Assistant** - the full-page chat described under "Where the AI is".
 - **Settings** - profile name and workspace plus notification toggles for risk alerts, driver
-  updates and the daily briefing. Saved per user in the browser's localStorage.
+  updates and the daily briefing. Saved per user in SQLite: the name updates the account row
+  (so the header greeting and dispatch attribution change too) and the preferences live in the
+  `user_settings` table, so they follow the user to any browser.
 - **Help center** - searchable help topics (getting started, shipments, fleet and drivers, the
   AI assistant, settings, exports) and a "Contact support" form that opens your mail client
   with the subject and message filled in.
 
-Creating a shipment, marking one for review, dispatching a vehicle and adding a driver all
-write to SQLite and show up across the dashboard on the next refresh.
+Creating a shipment, marking one for review, dispatching a vehicle, adding a driver and saving
+settings all write to SQLite and show up across the dashboard on the next refresh.
 
 ## Tech stack
 
@@ -179,6 +182,8 @@ All routes except `/api/health` and `/api/auth/login` require the session cookie
 POST   /api/auth/login                    {email, password, remember?} -> user, sets cookie
 POST   /api/auth/logout                   ends the session
 GET    /api/auth/me                       the signed-in user
+GET    /api/settings                      the user's preferences (defaults until first saved)
+PUT    /api/settings                      save {name, workspace, riskAlerts, driverUpdates, dailyBriefing} -> user, settings
 GET    /api/health                        engine name and database path
 GET    /api/snapshot                      shipments, metrics, fleet, drivers, dispatches and activity in one payload
 GET    /api/shipments                     all shipments

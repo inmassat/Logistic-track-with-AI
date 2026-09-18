@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createDriver, createShipment, deleteConversation, dispatchVehicle, fetchConversations, fetchSnapshot, markShipmentForReview } from './ai'
+import { createDriver, createShipment, deleteConversation, dispatchVehicle, fetchConversations, fetchSettings, fetchSnapshot, markShipmentForReview, saveSettings } from './ai'
 
 export const SNAPSHOT_KEY = ['snapshot'] as const
 export const CONVERSATIONS_KEY = ['conversations'] as const
+export const SETTINGS_KEY = ['settings'] as const
 
 /**
  * Loads the network snapshot (shipments, metrics, fleet and activity) from
@@ -48,6 +49,19 @@ export function useDispatchVehicle() {
   return useMutation({
     mutationFn: dispatchVehicle,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: SNAPSHOT_KEY }),
+  })
+}
+
+/** The signed-in user's workspace preferences from SQLite. */
+export function useSettings() {
+  return useQuery({ queryKey: SETTINGS_KEY, queryFn: fetchSettings })
+}
+
+export function useSaveSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: saveSettings,
+    onSuccess: (result) => queryClient.setQueryData(SETTINGS_KEY, result.settings),
   })
 }
 
