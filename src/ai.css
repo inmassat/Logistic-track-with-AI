@@ -1,0 +1,113 @@
+/* ===========================================================================
+   AI surfaces — copilot, daily briefing, risk badges, natural-language search.
+   Uses the same tokens as App.css (--navy, --teal, --orange, --line, --muted).
+   =========================================================================== */
+
+.spinning{animation:ai-spin 1s linear infinite}
+@keyframes ai-spin{to{transform:rotate(360deg)}}
+
+/* --- copilot trigger in the topbar --- */
+.copilot-trigger{display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:1px solid rgba(29,154,138,.28);border-radius:999px;background:linear-gradient(120deg,rgba(29,154,138,.10),rgba(242,155,56,.12));color:var(--navy);font:600 11.5px 'DM Sans';cursor:pointer;transition:border-color .2s,box-shadow .2s,transform .2s}
+.copilot-trigger:hover{border-color:var(--teal);box-shadow:0 6px 18px rgba(29,154,138,.18);transform:translateY(-1px)}
+.copilot-trigger svg{color:var(--teal)}
+
+/* --- AI daily briefing --- */
+.briefing-panel{position:relative;overflow:hidden;padding:22px 24px 24px;background:linear-gradient(135deg,#fbfdfc,#f4faf8 55%,#fdf7ef);border:1px solid rgba(29,154,138,.2)}
+.briefing-panel::before{content:'';position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,var(--teal),var(--orange))}
+.briefing-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.briefing-title{display:flex;align-items:flex-start;gap:12px}
+.briefing-mark{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border-radius:9px;background:linear-gradient(135deg,var(--teal),#16776b);color:#fff;box-shadow:0 4px 12px rgba(29,154,138,.3)}
+.briefing-head h2{margin:5px 0 0;color:var(--navy);font:600 17px/1.32 'Space Grotesk';letter-spacing:-.4px;max-width:62ch}
+.briefing-refresh{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--muted);cursor:pointer;transition:color .2s,border-color .2s}
+.briefing-refresh:hover:not(:disabled){color:var(--teal);border-color:var(--teal)}
+.briefing-refresh:disabled{cursor:default;opacity:.55}
+.briefing-summary{margin:14px 0 0;color:#546268;font-size:12.5px;line-height:1.65;max-width:78ch}
+.briefing-skeleton{display:grid;gap:9px;margin-top:16px}
+.briefing-skeleton span{height:11px;border-radius:5px;background:linear-gradient(90deg,#e9efec 25%,#f5f8f7 50%,#e9efec 75%);background-size:200% 100%;animation:ai-shimmer 1.3s ease-in-out infinite}
+.briefing-skeleton span:nth-child(2){width:88%}
+.briefing-skeleton span:nth-child(3){width:64%}
+@keyframes ai-shimmer{to{background-position:-200% 0}}
+.briefing-error{margin:14px 0 0;color:#c1543e;font-size:12px;line-height:1.6}
+.briefing-highlights{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px;margin-top:18px}
+.briefing-highlight{display:flex;align-items:flex-start;gap:10px;padding:12px 13px;border:1px solid var(--line);border-radius:9px;background:var(--paper)}
+.briefing-highlight strong{display:block;color:var(--navy);font:600 12px 'DM Sans'}
+.briefing-highlight small{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.55}
+.highlight-icon{display:grid;place-items:center;width:23px;height:23px;flex-shrink:0;border-radius:7px}
+.tone-positive .highlight-icon{background:rgba(29,154,138,.13);color:var(--teal)}
+.tone-warning .highlight-icon{background:rgba(242,155,56,.16);color:#c67a1e}
+.tone-critical .highlight-icon{background:rgba(225,111,85,.15);color:#c1543e}
+.tone-neutral .highlight-icon{background:rgba(25,53,61,.08);color:var(--navy)}
+.tone-critical{border-color:rgba(225,111,85,.32)}
+.briefing-actions{margin-top:18px;padding-top:16px;border-top:1px dashed #dde6e2}
+.briefing-actions ol{margin:9px 0 0;padding-left:17px;display:grid;gap:6px}
+.briefing-actions li{color:#546268;font-size:12px;line-height:1.55}
+.briefing-actions li::marker{color:var(--teal);font-weight:700}
+
+/* --- risk badge --- */
+.risk-badge{display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 8px;border-radius:999px;font:700 9.5px 'DM Sans';letter-spacing:.2px;white-space:nowrap;cursor:help}
+.risk-badge i{width:5px;height:5px;border-radius:50%;background:currentColor}
+.risk-badge em{font-style:normal;opacity:.6}
+.risk-low{background:rgba(29,154,138,.1);color:#16776b}
+.risk-medium{background:rgba(242,155,56,.16);color:#b5731a}
+.risk-high{background:rgba(225,111,85,.15);color:#c1543e}
+
+/* --- natural-language shipment search --- */
+.smart-search{padding:16px 18px 0}
+.smart-search-field{display:flex;align-items:center;gap:10px;height:44px;padding:0 6px 0 13px;border:1px solid rgba(29,154,138,.25);border-radius:9px;background:linear-gradient(120deg,rgba(29,154,138,.05),rgba(242,155,56,.05));transition:border-color .2s,box-shadow .2s}
+.smart-search-field:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px rgba(29,154,138,.1)}
+.smart-search-icon{display:grid;place-items:center;color:var(--teal);flex-shrink:0}
+.smart-search-field input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--navy);font:12.5px 'DM Sans'}
+.smart-search-field input::placeholder{color:#9bacab}
+.smart-search-clear{display:grid;place-items:center;width:26px;height:26px;flex-shrink:0;border:0;border-radius:7px;background:none;color:var(--muted);cursor:pointer}
+.smart-search-clear:hover{background:rgba(25,53,61,.06);color:var(--navy)}
+.smart-search-examples{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.smart-search-examples button{border:1px dashed #d7e2dd;border-radius:999px;background:none;padding:5px 11px;color:var(--muted);font:500 11px 'DM Sans';cursor:pointer;transition:color .2s,border-color .2s}
+.smart-search-examples button:hover{color:var(--teal);border-color:var(--teal)}
+.smart-search-note{display:flex;align-items:center;gap:6px;margin:10px 0 0;color:#546268;font-size:11.5px}
+.smart-search-note svg{color:var(--teal);flex-shrink:0}
+.smart-search-note em{font-style:normal;color:var(--muted)}
+.smart-search-note.error{color:#c1543e}
+.smart-search-note.error svg{color:#c1543e}
+
+/* --- copilot panel --- */
+.copilot-backdrop{position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end;background:rgba(19,36,41,.34);backdrop-filter:blur(3px);animation:ai-fade .2s ease}
+@keyframes ai-fade{from{opacity:0}}
+.copilot-panel{display:flex;flex-direction:column;width:min(452px,100%);height:100%;background:var(--paper);border-left:1px solid var(--line);box-shadow:-20px 0 48px rgba(19,36,41,.16);animation:ai-slide .26s cubic-bezier(.22,1,.36,1)}
+@keyframes ai-slide{from{transform:translateX(26px);opacity:.4}}
+.copilot-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 18px;border-bottom:1px solid var(--line)}
+.copilot-title{display:flex;align-items:center;gap:11px}
+.copilot-mark{display:grid;place-items:center;width:31px;height:31px;border-radius:9px;background:linear-gradient(135deg,var(--teal),#16776b);color:#fff;box-shadow:0 4px 12px rgba(29,154,138,.3)}
+.copilot-title strong{display:block;color:var(--navy);font:600 13.5px 'Space Grotesk';letter-spacing:-.3px}
+.copilot-title small{display:block;margin-top:1px;color:var(--muted);font-size:10.5px}
+.copilot-scroll{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:14px}
+.copilot-empty{margin:auto 0;text-align:center;padding:12px 4px}
+.copilot-empty-mark{display:grid;place-items:center;width:46px;height:46px;margin:0 auto 14px;border-radius:14px;background:linear-gradient(135deg,rgba(29,154,138,.12),rgba(242,155,56,.14));color:var(--teal)}
+.copilot-empty strong{display:block;color:var(--navy);font:600 14px 'Space Grotesk'}
+.copilot-empty p{margin:7px auto 0;max-width:33ch;color:var(--muted);font-size:11.5px;line-height:1.6}
+.copilot-suggestions{display:grid;gap:7px;margin-top:18px}
+.copilot-suggestions button{border:1px solid var(--line);border-radius:9px;background:var(--paper);padding:10px 12px;color:#546268;font:500 11.5px/1.45 'DM Sans';text-align:left;cursor:pointer;transition:border-color .2s,color .2s,transform .2s}
+.copilot-suggestions button:hover{border-color:var(--teal);color:var(--navy);transform:translateY(-1px)}
+.copilot-message{display:flex;gap:9px;align-items:flex-start}
+.copilot-message.user{justify-content:flex-end}
+.copilot-avatar{display:grid;place-items:center;width:24px;height:24px;flex-shrink:0;margin-top:2px;border-radius:7px;background:rgba(29,154,138,.12);color:var(--teal)}
+.copilot-bubble{max-width:83%;padding:11px 13px;border-radius:11px;font-size:12.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.copilot-message.assistant .copilot-bubble{background:#f5f8f7;border:1px solid var(--line);color:#3f4f55;border-top-left-radius:4px}
+.copilot-message.user .copilot-bubble{background:var(--navy);color:#eaf2f0;border-top-right-radius:4px}
+.copilot-typing{display:inline-flex;gap:4px;padding:2px 0}
+.copilot-typing i{width:5px;height:5px;border-radius:50%;background:var(--teal);opacity:.4;animation:ai-bounce 1.1s ease-in-out infinite}
+.copilot-typing i:nth-child(2){animation-delay:.15s}
+.copilot-typing i:nth-child(3){animation-delay:.3s}
+@keyframes ai-bounce{0%,80%,100%{transform:translateY(0);opacity:.35}40%{transform:translateY(-4px);opacity:1}}
+.copilot-error{margin:0;padding:10px 12px;border:1px solid rgba(225,111,85,.3);border-radius:9px;background:rgba(225,111,85,.07);color:#c1543e;font-size:11.5px;line-height:1.6}
+.copilot-composer{display:flex;align-items:center;gap:9px;padding:14px 16px;border-top:1px solid var(--line);background:var(--paper)}
+.copilot-composer input{flex:1;min-width:0;height:40px;border:1px solid var(--line);border-radius:9px;outline:0;background:#fbfcfc;padding:0 13px;color:var(--navy);font:12.5px 'DM Sans';transition:border-color .2s,box-shadow .2s}
+.copilot-composer input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(29,154,138,.1)}
+.copilot-composer input:disabled{opacity:.6}
+.copilot-send{display:grid;place-items:center;width:40px;height:40px;flex-shrink:0;border:0;border-radius:9px;background:var(--navy);color:#fff;cursor:pointer;transition:background .2s,opacity .2s}
+.copilot-send:hover:not(:disabled){background:var(--teal)}
+.copilot-send:disabled{opacity:.35;cursor:default}
+
+@media (max-width:620px){
+  .copilot-panel{width:100%}
+  .copilot-trigger{padding:0 11px}
+}
