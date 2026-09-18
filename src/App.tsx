@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, Download, Eye, EyeOff, Filter, Flag, Fuel, Gauge, LayoutDashboard, Loader2, LockKeyhole, LogOut, Mail, Map, MoreHorizontal, PackageCheck, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Sparkles, Truck, Users, Zap } from 'lucide-react'
+import AssistantPage from './components/AssistantPage'
 import BriefingCard from './components/BriefingCard'
-import CopilotPanel from './components/CopilotPanel'
 import RiskBadge from './components/RiskBadge'
 import SmartSearch from './components/SmartSearch'
-import type { ActivityEntry, ActivityKind, NetworkContext, Shipment, ShipmentStatus } from './data/network'
+import type { ActivityEntry, ActivityKind, NetworkContext, Shipment, ShipmentStatus, User } from './data/network'
+import { AiError, fetchCurrentUser, login, logout } from './lib/ai'
 import type { RiskAssessment, SearchResult } from './lib/ai'
 import { greeting, longDate, shortDate, timeAgo } from './lib/format'
 import { useCreateShipment, useMarkForReview, useNetwork } from './lib/useNetwork'
@@ -18,6 +20,8 @@ const EMPTY_ACTIVITY: ActivityEntry[] = []
 const ACTIVITY_PAGE_SIZE = 4
 const SHIPMENTS_PAGE_SIZE = 5
 const STATUS_TABS = ['All', 'In transit', 'At hub', 'Delivered'] as const
+const DEMO_EMAIL = 'demo@haul.io'
+const DEMO_PASSWORD = 'demo1234'
 
 const ACTIVITY_STYLE: Record<ActivityKind, { icon: React.ReactNode; tone: string }> = {
   delivered: { icon: <Check size={15} />, tone: 'green' },
@@ -35,8 +39,13 @@ const volumePeriods = {
   'This month': { total: 748, trend: '11.6%', bars: [48, 57, 68, 52, 81, 73, 92], labels: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7'] },
 } as const
 
+function initials(name: string): string {
+  return name.split(/\s+/).map((part) => part[0] ?? '').join('').slice(0, 2).toUpperCase()
+}
+
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  // undefined = still checking the saved session, null = signed out.
+  const [user, setUser] = useState<User | null | undefined>(undefined)
   const [activeNav, setActiveNav] = useState('Overview')
   const [filter, setFilter] = useState<ShipmentStatus | 'All'>('All')
   const [liveTracking, setLiveTracking] = useState(true)
@@ -47,13 +56,25 @@ function App() {
   const [activityPage, setActivityPage] = useState(1)
   const [volumePeriod, setVolumePeriod] = useState<keyof typeof volumePeriods>('This week')
   const [isVolumeMenuOpen, setIsVolumeMenuOpen] = useState(false)
-  const [isCopilotOpen, setIsCopilotOpen] = useState(false)
   const volume = volumePeriods[volumePeriod]
+  const queryClient = useQueryClient()
 
-  const { data: network, isLoading, error, refetch, isFetching } = useNetwork()
+  useEffect(() => {
+    let cancelled = false
+    fetchCurrentUser()
+      .then((current) => { if (!cancelled) setUser(current) })
+      .catch(() => { if (!cancelled) setUser(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  const { data: network, isLoading, error, refetch, isFetching } = useNetwork(Boolean(user))
   const { byId: riskById } = useRiskAssessments(network)
   const shipments = network?.shipments ?? EMPTY_SHIPMENTS
   const activity = network?.activity ?? EMPTY_ACTIVITY
+
+  // A 401 on the snapshot means the session expired: show the login page again.
+  // Signing in clears the query cache, which clears this error.
+  const sessionExpired = error instanceof AiError && error.code === 'unauthorized'
 
   const visibleShipments = useMemo(() => {
     const filteredShipments = shipments.filter((shipment) => filter === 'All' || shipment.status === filter)
@@ -71,37 +92,69 @@ function App() {
   const activityFrom = activity.length ? (currentActivityPage - 1) * ACTIVITY_PAGE_SIZE + 1 : 0
   const activityTo = Math.min(currentActivityPage * ACTIVITY_PAGE_SIZE, activity.length)
 
-  const navItems = [{ label: 'Overview', icon: LayoutDashboard }, { label: 'Shipments', icon: PackageCheck, count: network ? String(shipments.length) : undefined }, { label: 'Fleet', icon: Truck }, { label: 'Routes', icon: Map }]
+  const navItems = [{ label: 'Overview', icon: LayoutDashboard }, { label: 'AI Assistant', icon: Sparkles, badge: 'AI' }, { label: 'Shipments', icon: PackageCheck, count: network ? String(shipments.length) : undefined }, { label: 'Fleet', icon: Truck }, { label: 'Routes', icon: Map }]
 
-  if (!isAuthenticated) return <LoginPage onLogin={() => setIsAuthenticated(true)} />
+  const signIn = (signedIn: User) => {
+    queryClient.clear()
+    setUser(signedIn)
+    setActiveNav('Overview')
+  }
+
+  const signOut = async () => {
+    try { await logout() } catch { /* the cookie is cleared locally either way */ }
+    queryClient.clear()
+    setUser(null)
+    setActiveNav('Overview')
+  }
+
+  if (user === undefined) return <main className="login-page"><div className="session-check"><Loader2 size={22} className="spinning" /> Checking your session</div></main>
+  if (!user || sessionExpired) return <LoginPage onLogin={signIn} />
   return <div className="app-shell">
     <aside className="sidebar"><div className="brand"><span className="brand-mark"><span /></span><span>haul<span className="brand-dot">.</span>io</span></div><div className="workspace-switcher"><span className="workspace-avatar">AH</span><span><strong>Atlas Haulage</strong><small>Operations workspace</small></span><ChevronDown size={15} /></div>
-      <nav className="main-nav" aria-label="Main navigation"><small className="nav-label">WORKSPACE</small>{navItems.map(({ label, icon: Icon, count }) => <button key={label} className={activeNav === label ? 'nav-item active' : 'nav-item'} onClick={() => setActiveNav(label)}><Icon size={18} /><span>{label}</span>{count && <em>{count}</em>}</button>)}<small className="nav-label nav-label-spaced">MANAGE</small><button className="nav-item" onClick={() => setActiveNav('Drivers')}><Users size={18} /><span>Drivers</span></button><button className="nav-item" onClick={() => setActiveNav('Analytics')}><Activity size={18} /><span>Analytics</span></button></nav>
-      <div className="sidebar-bottom"><button className="nav-item"><Settings size={18} /><span>Settings</span></button><button className="nav-item"><CircleHelp size={18} /><span>Help center</span></button><div className="profile"><div className="profile-avatar">JM</div><span><strong>Jamie Morgan</strong><small>Fleet manager</small></span><button className="logout-button" onClick={() => { setActiveNav('Overview'); setIsAuthenticated(false) }} aria-label="Log out"><LogOut size={16} /><span>Log out</span></button></div></div>
+      <nav className="main-nav" aria-label="Main navigation"><small className="nav-label">WORKSPACE</small>{navItems.map(({ label, icon: Icon, count, badge }) => <button key={label} className={activeNav === label ? 'nav-item active' : 'nav-item'} onClick={() => setActiveNav(label)}><Icon size={18} /><span>{label}</span>{count && <em>{count}</em>}{badge && <em className="nav-badge">{badge}</em>}</button>)}<small className="nav-label nav-label-spaced">MANAGE</small><button className="nav-item" onClick={() => setActiveNav('Drivers')}><Users size={18} /><span>Drivers</span></button><button className="nav-item" onClick={() => setActiveNav('Analytics')}><Activity size={18} /><span>Analytics</span></button></nav>
+      <div className="sidebar-bottom"><button className="nav-item"><Settings size={18} /><span>Settings</span></button><button className="nav-item"><CircleHelp size={18} /><span>Help center</span></button><div className="profile"><div className="profile-avatar">{initials(user.name)}</div><span><strong>{user.name}</strong><small>{user.role}</small></span><button className="logout-button" onClick={() => void signOut()} aria-label="Log out"><LogOut size={16} /><span>Log out</span></button></div></div>
     </aside>
-    <main className="main-content"><header className="topbar"><div className="crumbs"><span>Workspace</span><span>/</span><strong>{activeNav}</strong></div><div className="top-actions"><button className="icon-button" aria-label="Refresh data" onClick={() => void refetch()} disabled={isFetching}><RefreshCw size={18} className={isFetching ? 'spinning' : ''} /></button><button className="icon-button notification" aria-label="Notifications"><Bell size={18} /><i /></button><button className="copilot-trigger" onClick={() => setIsCopilotOpen(true)}><Sparkles size={15} /> Ask copilot</button><div className="top-date"><CalendarDays size={16} /><span>{shortDate()}</span></div></div></header>
-      <div className="page-content">{!network ? <DataState loading={isLoading} error={error} onRetry={() => void refetch()} /> : activeNav === 'Shipments' ? <ShipmentsPage network={network} riskById={riskById} /> : <div className="dashboard-content"><section className="page-intro"><div><p className="eyebrow"><span className="status-pulse" /> {longDate()}</p><h1>{greeting()}, Jamie<span>.</span></h1><p className="intro-copy">Here is what is happening across your network today.</p></div><button className="primary-button" onClick={() => setActiveNav('Shipments')}><Plus size={17} /> New shipment</button></section>
+    <main className="main-content"><header className="topbar"><div className="crumbs"><span>Workspace</span><span>/</span><strong>{activeNav}</strong></div><div className="top-actions"><button className="icon-button" aria-label="Refresh data" onClick={() => void refetch()} disabled={isFetching}><RefreshCw size={18} className={isFetching ? 'spinning' : ''} /></button><button className="icon-button notification" aria-label="Notifications"><Bell size={18} /><i /></button><button className="copilot-trigger" onClick={() => setActiveNav('AI Assistant')}><Sparkles size={15} /> Ask the AI assistant</button><div className="top-date"><CalendarDays size={16} /><span>{shortDate()}</span></div></div></header>
+      <div className="page-content">{!network ? <DataState loading={isLoading} error={error} onRetry={() => void refetch()} /> : activeNav === 'AI Assistant' ? <AssistantPage network={network} user={user} /> : activeNav === 'Shipments' ? <ShipmentsPage network={network} riskById={riskById} /> : <div className="dashboard-content"><section className="page-intro"><div><p className="eyebrow"><span className="status-pulse" /> {longDate()}</p><h1>{greeting()}, {user.name.split(' ')[0]}<span>.</span></h1><p className="intro-copy">Here is what is happening across your network today.</p></div><button className="primary-button" onClick={() => setActiveNav('Shipments')}><Plus size={17} /> New shipment</button></section>
         <section className="metric-grid" aria-label="Network summary"><Metric icon={<Truck size={19} />} label="Active shipments" value={network.metrics.activeShipments.value} detail={network.metrics.activeShipments.detail} trend={network.metrics.activeShipments.trend} tone="orange" up /><Metric icon={<Gauge size={19} />} label="On-time rate" value={network.metrics.onTimeRate.value} detail={network.metrics.onTimeRate.detail} trend={network.metrics.onTimeRate.trend} tone="teal" up /><Metric icon={<Fuel size={19} />} label="Fleet utilization" value={network.metrics.fleetUtilization.value} detail={network.metrics.fleetUtilization.detail} trend={network.metrics.fleetUtilization.trend} tone="blue" /><Metric icon={<AlertTriangle size={19} />} label="Needs attention" value={network.metrics.needsAttention.value} detail={network.metrics.needsAttention.detail} trend={network.metrics.needsAttention.trend} tone="red" /></section>
         <BriefingCard context={network} />
         <section className="content-grid"><div className="main-column"><article className="panel map-panel"><PanelHeading kicker="NETWORK PULSE" title="Live route overview"><div className="heading-actions"><span className="live-indicator"><span /> Live</span><button className={liveTracking ? 'toggle is-on' : 'toggle'} onClick={() => setLiveTracking(!liveTracking)} aria-label="Toggle live tracking"><span /></button><button className="more-button" aria-label="More options"><MoreHorizontal size={19} /></button></div></PanelHeading><div className="map-canvas"><div className="map-label label-north">NORTH SEA</div><div className="map-label label-paris">PARIS</div><div className="map-label label-berlin">BERLIN</div><div className="map-label label-milan">MILAN</div><div className="map-road road-one" /><div className="map-road road-two" /><div className="map-road road-three" /><div className="route-line route-one" /><div className="route-line route-two" /><div className="route-line route-three" /><MapNode className="node-antwerp" label="Antwerp" /><MapNode className="node-rotterdam" label="Rotterdam" /><MapNode className="node-paris" label="Paris" /><MapNode className="node-berlin" label="Berlin" /><MapNode className="node-milan" label="Milan" /><div className="vehicle-marker vehicle-a"><Truck size={14} /></div><div className="vehicle-marker vehicle-b"><Truck size={14} /></div><div className="map-zoom"><button>+</button><button>-</button></div><div className="map-legend"><span><i className="legend-dot green" /> On route</span><span><i className="legend-dot amber" /> At hub</span></div></div><div className="map-footer"><span><span className="footer-number">{network.fleet.vehiclesInMotion}</span> vehicles in motion</span><span><span className="footer-number">{String(network.fleet.vehiclesAtHubs).padStart(2, '0')}</span> at distribution hubs</span><span className="map-updated"><Zap size={13} /> Updated {timeAgo(network.asOf)}</span></div></article>
           <article className="panel shipments-panel"><PanelHeading kicker="OPERATIONS" title="Active shipments"><button className="text-button" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show less' : 'View all shipments'} <ArrowUpRight size={15} /></button></PanelHeading><div className="shipment-filters"><div className="filter-tabs">{STATUS_TABS.map((item) => <button key={item} className={filter === item ? 'filter-tab selected' : 'filter-tab'} onClick={() => setFilter(item)}>{item}{item === 'All' && <span>{shipments.length}</span>}</button>)}</div><div className="period-menu"><button className="filter-button" onClick={() => setIsShipmentSortOpen(!isShipmentSortOpen)} aria-expanded={isShipmentSortOpen}><span>Sort: {shipmentSort}</span><ChevronDown size={14} /></button>{isShipmentSortOpen && <div className="period-popover shipment-sort-popover">{(['ETA', 'Progress', 'Shipment ID'] as const).map((sortOption) => <button key={sortOption} className={sortOption === shipmentSort ? 'period-option selected' : 'period-option'} onClick={() => { setShipmentSort(sortOption); setIsShipmentSortOpen(false) }}>{sortOption}</button>)}</div>}</div></div><div className="shipment-list">{visibleShipments.map((shipment) => <ShipmentRow key={shipment.id} shipment={shipment} risk={riskById[shipment.id]} />)}{visibleShipments.length === 0 && <div className="empty-state"><PackageCheck size={25} /><strong>No shipments in this status</strong><span>Try another tab.</span></div>}</div></article></div>
           <div className="side-column"><article className="panel chart-panel"><PanelHeading kicker="THROUGHPUT" title="Shipment volume"><div className="period-menu"><button className="filter-button" onClick={() => setIsVolumeMenuOpen(!isVolumeMenuOpen)} aria-expanded={isVolumeMenuOpen}><span>{volumePeriod}</span><ChevronDown size={14} /></button>{isVolumeMenuOpen && <div className="period-popover">{(Object.keys(volumePeriods) as Array<keyof typeof volumePeriods>).map((period) => <button key={period} className={period === volumePeriod ? 'period-option selected' : 'period-option'} onClick={() => { setVolumePeriod(period); setIsVolumeMenuOpen(false) }}>{period}</button>)}</div>}</div></PanelHeading><div className="chart-total"><strong>{volume.total}</strong><span>shipments dispatched</span><em><ArrowUpRight size={14} /> {volume.trend}</em></div><div className="bar-chart">{volume.bars.map((height, index) => <div className="bar-column" key={`${volumePeriod}-${index}`}><div className={index === 5 ? 'bar active' : 'bar'} style={{ height: `${height}%` }} /><small>{volume.labels[index]}</small></div>)}</div></article><article className="panel activity-panel"><PanelHeading kicker="LATEST UPDATES" title="Activity"><div className="activity-menu"><button className="more-button" aria-label="More activity options" onClick={() => setIsActivityMenuOpen(!isActivityMenuOpen)} aria-expanded={isActivityMenuOpen}><MoreHorizontal size={19} /></button>{isActivityMenuOpen && <div className="activity-popover"><button onClick={() => setIsActivityMenuOpen(false)}>Mark all as read</button><button onClick={() => { setActivityPage(Math.min(2, activityPages)); setIsActivityMenuOpen(false) }}>Show all updates</button></div>}</div></PanelHeading><div className="activity-list">{activityRows.map((entry) => <ActivityItem key={entry.id} icon={ACTIVITY_STYLE[entry.kind]?.icon ?? <Activity size={15} />} tone={ACTIVITY_STYLE[entry.kind]?.tone ?? 'blue'} title={entry.title} body={entry.body} time={timeAgo(entry.occurredAt)} />)}{activityRows.length === 0 && <div className="empty-state"><Activity size={25} /><strong>No activity yet</strong><span>Updates will appear here as they are logged.</span></div>}</div><div className="activity-pagination"><span>{activityFrom}-{activityTo} of {activity.length}</span><button disabled={currentActivityPage === 1} onClick={() => setActivityPage(currentActivityPage - 1)} aria-label="Previous activity page"><ChevronLeft size={14} /></button><strong>{currentActivityPage}</strong><button disabled={currentActivityPage >= activityPages} onClick={() => setActivityPage(currentActivityPage + 1)} aria-label="Next activity page"><ChevronRight size={14} /></button></div></article></div></section>
       </div>}</div></main>
-    {network && <CopilotPanel open={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} context={network} />}
   </div>
 }
 function DataState({ loading, error, onRetry }: { loading: boolean; error: unknown; onRetry: () => void }) {
   return <div className="dashboard-content"><article className="panel"><div className="empty-state">{loading ? <><Loader2 size={25} className="spinning" /><strong>Loading your network</strong><span>Reading shipments and activity from the database.</span></> : <><Database size={25} /><strong>Cannot reach the API</strong><span>{error instanceof Error ? error.message : 'Start the server with `npm run dev` and try again.'}</span><button className="secondary-button" onClick={onRetry} style={{ marginTop: 12 }}><RefreshCw size={15} /> Retry</button></>}</div></article></div>
 }
 function PanelHeading({ kicker, title, children }: { kicker: string; title: string; children: React.ReactNode }) { return <div className="panel-heading"><div><p className="section-kicker">{kicker}</p><h2>{title}</h2></div>{children}</div> }
-function LoginPage({ onLogin }: { onLogin: () => void }) {
+function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
   const [forgotNotice, setForgotNotice] = useState(false)
-  const submitLogin = (event: FormEvent<HTMLFormElement>) => {
+  const submitLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onLogin()
+    if (pending) return
+    setPending(true)
+    setError('')
+    try {
+      onLogin(await login(email, password, remember))
+    } catch (caught) {
+      setError(caught instanceof AiError ? caught.message : 'Could not sign in. Please try again.')
+    } finally {
+      setPending(false)
+    }
   }
-  return <main className="login-page"><div className="login-atmosphere"><span className="login-grid" /><span className="login-route route-a" /><span className="login-route route-b" /><span className="login-node node-a" /><span className="login-node node-b" /><span className="login-node node-c" /></div><section className="login-card"><div className="login-brand"><span className="brand-mark"><span /></span><span>haul<span className="brand-dot">.</span>io</span></div><div className="login-heading"><p className="eyebrow"><span className="status-pulse" /> OPERATIONS PLATFORM</p><h1>Move with<br /><em>confidence.</em></h1><p>One clear view of every shipment, route, and vehicle in your network.</p></div><form className="login-form" onSubmit={submitLogin}><label>Email address<div className="login-input"><Mail size={17} /><input name="email" type="email" required placeholder="you@company.com" autoComplete="email" /></div></label><label>Password<div className="login-input"><LockKeyhole size={17} /><input name="password" type={showPassword ? 'text' : 'password'} required minLength={6} placeholder="Enter your password" autoComplete="current-password" /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label><div className="login-options"><label className="remember-option"><input type="checkbox" name="remember" /> <span>Remember me</span></label><button type="button" className="forgot-button" onClick={() => setForgotNotice(true)}>Forgot password?</button></div><button className="login-submit" type="submit">Sign in to workspace <ArrowRight size={17} /></button>{forgotNotice && <p className="forgot-notice" role="status">Password reset instructions will be sent to your workspace email.</p>}</form><div className="login-footer"><span>Secure workspace access</span><span className="footer-separator">·</span><span>Atlas Haulage</span></div></section><aside className="login-aside"><div className="aside-topline"><span>ATLAS HAULAGE</span><span>EST. 2018</span></div><div className="aside-copy"><span className="aside-overline">THE LOGISTICS CONTROL ROOM</span><h2>Every mile,<br /><strong>in view.</strong></h2><p>Coordinate the moving parts of your operation from one calm, connected workspace.</p></div><div className="login-stats"><div><strong>94.8%</strong><span>on-time network rate</span></div><div><strong>24</strong><span>active shipments</span></div><div><strong>142</strong><span>vehicles connected</span></div></div><div className="aside-mark"><span>AH</span><small>Atlas Haulage<br />Operations workspace</small></div></aside></main>
+  const useDemoAccount = () => {
+    setEmail(DEMO_EMAIL)
+    setPassword(DEMO_PASSWORD)
+    setError('')
+  }
+  return <main className="login-page"><div className="login-atmosphere"><span className="login-grid" /><span className="login-route route-a" /><span className="login-route route-b" /><span className="login-node node-a" /><span className="login-node node-b" /><span className="login-node node-c" /></div><section className="login-card"><div className="login-brand"><span className="brand-mark"><span /></span><span>haul<span className="brand-dot">.</span>io</span></div><div className="login-heading"><p className="eyebrow"><span className="status-pulse" /> OPERATIONS PLATFORM</p><h1>Move with<br /><em>confidence.</em></h1><p>One clear view of every shipment, route, and vehicle in your network.</p></div><form className="login-form" onSubmit={(event) => void submitLogin(event)}><label>Email address<div className="login-input"><Mail size={17} /><input name="email" type="email" required placeholder="you@company.com" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></div></label><label>Password<div className="login-input"><LockKeyhole size={17} /><input name="password" type={showPassword ? 'text' : 'password'} required minLength={6} placeholder="Enter your password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label><div className="login-options"><label className="remember-option"><input type="checkbox" name="remember" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> <span>Remember me</span></label><button type="button" className="forgot-button" onClick={() => setForgotNotice(true)}>Forgot password?</button></div>{error && <p className="login-error" role="alert">{error}</p>}<button className="login-submit" type="submit" disabled={pending}>{pending ? <Loader2 size={17} className="spinning" /> : <>Sign in to workspace <ArrowRight size={17} /></>}</button>{forgotNotice && <p className="forgot-notice" role="status">This demo has no password reset. Use the demo account below.</p>}<div className="demo-credentials"><div><strong>Demo account</strong><span>{DEMO_EMAIL} <em>/</em> {DEMO_PASSWORD}</span></div><button type="button" className="secondary-button" onClick={useDemoAccount}>Use demo account</button></div></form><div className="login-footer"><span>Secure workspace access</span><span className="footer-separator">·</span><span>Atlas Haulage</span></div></section><aside className="login-aside"><div className="aside-topline"><span>ATLAS HAULAGE</span><span>EST. 2018</span></div><div className="aside-copy"><span className="aside-overline">THE LOGISTICS CONTROL ROOM</span><h2>Every mile,<br /><strong>in view.</strong></h2><p>Coordinate the moving parts of your operation from one calm, connected workspace, with an AI assistant that knows every shipment.</p></div><div className="login-stats"><div><strong>94.8%</strong><span>on-time network rate</span></div><div><strong>24</strong><span>active shipments</span></div><div><strong>142</strong><span>vehicles connected</span></div></div><div className="aside-mark"><span>AH</span><small>Atlas Haulage<br />Operations workspace</small></div></aside></main>
 }
 function MapNode({ className, label }: { className: string; label: string }) { return <div className={`map-node ${className}`}><span className="node-dot" /><small>{label}</small></div> }
 function Metric({ icon, label, value, detail, trend, tone, up }: { icon: React.ReactNode; label: string; value: string; detail: string; trend: string; tone: string; up?: boolean }) { return <article className="metric-card"><div className={`metric-icon ${tone}`}>{icon}</div><div className="metric-copy"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div><span className={up ? 'metric-trend positive' : tone === 'red' ? 'metric-trend attention' : 'metric-trend negative'}>{up && <ArrowUpRight size={13} />}{!up && tone !== 'red' && <ArrowDownRight size={13} />}{trend}</span></article> }

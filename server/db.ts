@@ -2,14 +2,18 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ActivityEntry, ActivityKind, NetworkContext, NetworkMetrics, NewShipment, Shipment, ShipmentStatus } from '../src/data/network'
-import { FLEET, SEED_ACTIVITY, SEED_SHIPMENTS } from './seed'
+import type { ActivityEntry, ActivityKind, Conversation, NetworkContext, NetworkMetrics, NewShipment, Shipment, ShipmentStatus, StoredMessage, User } from '../src/data/network'
+import { hashPassword } from './auth'
+import { FLEET, SEED_ACTIVITY, SEED_SHIPMENTS, SEED_USERS } from './seed'
 
 /**
  * SQLite persistence using Node's built-in `node:sqlite` module, so there is
  * nothing native to compile. The database lives in server/data/ (gitignored)
- * and is seeded with sample shipments the first time it is created.
+ * and is seeded with demo users and sample shipments the first time it is
+ * created.
  */
+
+const SCHEMA_VERSION = 2
 
 const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -21,6 +25,31 @@ const db = new DatabaseSync(DB_PATH)
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
+`)
+
+// Version 1 stored copilot messages without users or conversations. Those
+// rows cannot be attributed to anyone, so they are dropped on upgrade.
+const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+if (version > 0 && version < SCHEMA_VERSION) {
+  db.exec('DROP TABLE IF EXISTS copilot_messages')
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name          TEXT NOT NULL,
+    role          TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
 
   CREATE TABLE IF NOT EXISTS shipments (
     id          TEXT PRIMARY KEY,
@@ -45,21 +74,46 @@ db.exec(`
     occurred_at TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS copilot_messages (
+  CREATE TABLE IF NOT EXISTS conversations (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    role       TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-    content    TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title      TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS copilot_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT NOT NULL,
+    created_at      TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS activity_occurred_at ON activity(occurred_at DESC);
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+  CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS messages_conversation ON copilot_messages(conversation_id, id);
+
+  PRAGMA user_version = ${SCHEMA_VERSION};
 `)
+
+const nowIso = () => new Date().toISOString()
 
 /* ------------------------------------------------------------------ seeding */
 
 function seedIfEmpty() {
-  const row = db.prepare('SELECT COUNT(*) AS count FROM shipments').get() as { count: number }
-  if (row.count > 0) return
+  const users = db.prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number }
+  if (users.count === 0) {
+    const insertUser = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
+    for (const user of SEED_USERS) {
+      insertUser.run(user.email, user.name, user.role, hashPassword(user.password), nowIso())
+    }
+    console.log(`[haul.io] Seeded ${SEED_USERS.length} demo users`)
+  }
+
+  const shipments = db.prepare('SELECT COUNT(*) AS count FROM shipments').get() as { count: number }
+  if (shipments.count > 0) return
 
   const now = Date.now()
   const insertShipment = db.prepare(`
@@ -90,6 +144,45 @@ function seedIfEmpty() {
 }
 
 seedIfEmpty()
+
+/* ------------------------------------------------------------ users & auth */
+
+type UserRow = { id: number; email: string; name: string; role: string; password_hash: string }
+
+function toUser(row: UserRow): User {
+  return { id: row.id, email: row.email, name: row.name, role: row.role }
+}
+
+/** Returns the user plus the stored hash so the caller can verify a password. */
+export function findUserByEmail(email: string): (User & { passwordHash: string }) | null {
+  const row = db.prepare('SELECT id, email, name, role, password_hash FROM users WHERE email = ?').get(email.trim()) as unknown as UserRow | undefined
+  return row ? { ...toUser(row), passwordHash: row.password_hash } : null
+}
+
+export function createSession(userId: number, ttlMs: number, token: string): void {
+  const created = Date.now()
+  db.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run(token, userId, new Date(created).toISOString(), new Date(created + ttlMs).toISOString())
+}
+
+/** Resolves a session token to its user, discarding the session if it has expired. */
+export function getSessionUser(token: string): User | null {
+  const row = db.prepare(`
+    SELECT u.id, u.email, u.name, u.role, u.password_hash, s.expires_at
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token = ?
+  `).get(token) as unknown as (UserRow & { expires_at: string }) | undefined
+  if (!row) return null
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    deleteSession(token)
+    return null
+  }
+  return toUser(row)
+}
+
+export function deleteSession(token: string): void {
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(token)
+}
 
 /* ---------------------------------------------------------------- shipments */
 
@@ -147,14 +240,13 @@ const SERVICE_COLORS: Record<string, string> = {
 export function createShipment(input: NewShipment): Shipment {
   const id = nextShipmentId()
   const service = input.service?.trim() || 'Standard road freight'
-  const createdAt = new Date().toISOString()
 
   db.exec('BEGIN')
   try {
     db.prepare(`
       INSERT INTO shipments (id, origin, destination, customer, eta, progress, status, color, reference, service, created_at)
       VALUES (?, ?, ?, ?, ?, 0, 'In transit', ?, ?, ?, ?)
-    `).run(id, input.origin.trim(), input.destination.trim(), input.customer.trim(), input.eta.trim(), SERVICE_COLORS[service] ?? '#1d9a8a', input.reference?.trim() || null, service, createdAt)
+    `).run(id, input.origin.trim(), input.destination.trim(), input.customer.trim(), input.eta.trim(), SERVICE_COLORS[service] ?? '#1d9a8a', input.reference?.trim() || null, service, nowIso())
     insertActivity('booked', 'Shipment booked', `${id} · ${input.customer.trim()}`, id)
     db.exec('COMMIT')
   } catch (error) {
@@ -184,28 +276,50 @@ export function listActivity(limit = 50): ActivityEntry[] {
 }
 
 function insertActivity(kind: ActivityKind, title: string, body: string, shipmentId: string | null): ActivityEntry {
-  const occurredAt = new Date().toISOString()
+  const occurredAt = nowIso()
   const result = db.prepare('INSERT INTO activity (kind, title, body, shipment_id, occurred_at) VALUES (?, ?, ?, ?, ?)').run(kind, title, body, shipmentId, occurredAt)
   return { id: Number(result.lastInsertRowid), kind, title, body, shipmentId, occurredAt }
 }
 
-/* --------------------------------------------------------- copilot history */
+/* ---------------------------------------------------------- conversations */
 
-export type StoredMessage = { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
+type ConversationRow = { id: number; title: string; created_at: string; updated_at: string }
 
-export function listChatMessages(): StoredMessage[] {
-  const rows = db.prepare('SELECT id, role, content, created_at FROM copilot_messages ORDER BY id ASC').all() as unknown as { id: number; role: 'user' | 'assistant'; content: string; created_at: string }[]
+function toConversation(row: ConversationRow): Conversation {
+  return { id: row.id, title: row.title, createdAt: row.created_at, updatedAt: row.updated_at }
+}
+
+export function listConversations(userId: number): Conversation[] {
+  const rows = db.prepare('SELECT id, title, created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC, id DESC').all(userId) as unknown as ConversationRow[]
+  return rows.map(toConversation)
+}
+
+export function getConversation(id: number, userId: number): Conversation | null {
+  const row = db.prepare('SELECT id, title, created_at, updated_at FROM conversations WHERE id = ? AND user_id = ?').get(id, userId) as unknown as ConversationRow | undefined
+  return row ? toConversation(row) : null
+}
+
+export function createConversation(userId: number, title: string): Conversation {
+  const now = nowIso()
+  const result = db.prepare('INSERT INTO conversations (user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)').run(userId, title, now, now)
+  return { id: Number(result.lastInsertRowid), title, createdAt: now, updatedAt: now }
+}
+
+export function deleteConversation(id: number, userId: number): boolean {
+  const result = db.prepare('DELETE FROM conversations WHERE id = ? AND user_id = ?').run(id, userId)
+  return Number(result.changes) > 0
+}
+
+export function listMessages(conversationId: number): StoredMessage[] {
+  const rows = db.prepare('SELECT id, role, content, created_at FROM copilot_messages WHERE conversation_id = ? ORDER BY id ASC').all(conversationId) as unknown as { id: number; role: 'user' | 'assistant'; content: string; created_at: string }[]
   return rows.map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at }))
 }
 
-export function addChatMessage(role: 'user' | 'assistant', content: string): StoredMessage {
-  const createdAt = new Date().toISOString()
-  const result = db.prepare('INSERT INTO copilot_messages (role, content, created_at) VALUES (?, ?, ?)').run(role, content, createdAt)
+export function addMessage(conversationId: number, role: 'user' | 'assistant', content: string): StoredMessage {
+  const createdAt = nowIso()
+  const result = db.prepare('INSERT INTO copilot_messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)').run(conversationId, role, content, createdAt)
+  db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(createdAt, conversationId)
   return { id: Number(result.lastInsertRowid), role, content, createdAt }
-}
-
-export function clearChatMessages(): void {
-  db.exec('DELETE FROM copilot_messages')
 }
 
 /* ----------------------------------------------------------------- snapshot */
@@ -233,7 +347,7 @@ export function getSnapshot(): NetworkContext {
   const shipments = listShipments()
   const activity = listActivity()
   return {
-    asOf: new Date().toISOString(),
+    asOf: nowIso(),
     shipments,
     metrics: computeMetrics(shipments, activity),
     fleet: { vehiclesInMotion: FLEET.vehiclesInMotion, vehiclesAtHubs: FLEET.vehiclesAtHubs, vehiclesConnected: FLEET.vehiclesConnected, hubs: FLEET.hubs },

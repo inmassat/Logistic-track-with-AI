@@ -3,8 +3,9 @@ import type { NextFunction, Request, Response } from 'express'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ChatMessage, NetworkContext, NewShipment } from '../src/data/network'
-import { DB_PATH, addChatMessage, clearChatMessages, createShipment, getSnapshot, listActivity, listChatMessages, listShipments, markShipmentForReview } from './db'
+import type { ChatMessage, NetworkContext, NewShipment, User } from '../src/data/network'
+import { REMEMBERED_SESSION_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, clearedSessionCookie, newSessionToken, parseCookies, sessionCookie, verifyPassword } from './auth'
+import { DB_PATH, addMessage, createConversation, createSession, createShipment, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, listActivity, listConversations, listMessages, listShipments, markShipmentForReview } from './db'
 import { ENGINE, answerQuestion, assessRisk, buildBriefing, searchShipments } from './demoAi'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -12,20 +13,60 @@ const PORT = Number(process.env.PORT ?? 8787)
 const app = express()
 app.use(express.json({ limit: '1mb' }))
 
-/**
- * The AI endpoints accept a `context` from the browser (the snapshot it is
- * displaying) for API compatibility, but always answer from a fresh SQLite
- * read so responses reflect what is actually stored.
- */
-function currentContext(): NetworkContext {
-  return getSnapshot()
-}
+/* ------------------------------------------------------------------- auth */
+
+/** Public endpoints; everything else under /api needs a valid session. */
+const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/login'])
+
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE]
+  const user = token ? getSessionUser(token) : null
+  res.locals.user = user
+  res.locals.token = token
+  if (user || PUBLIC_PATHS.has(req.originalUrl.split('?')[0])) return next()
+  res.status(401).json({ error: 'unauthorized', message: 'Please sign in to continue.' })
+})
+
+const currentUser = (res: Response): User => res.locals.user as User
+
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  const email = String(req.body?.email ?? '').trim()
+  const password = String(req.body?.password ?? '')
+  const remember = Boolean(req.body?.remember)
+  if (!email || !password) {
+    return res.status(400).json({ error: 'bad_request', message: 'Email and password are required.' })
+  }
+  const account = findUserByEmail(email)
+  if (!account || !verifyPassword(password, account.passwordHash)) {
+    return res.status(401).json({ error: 'invalid_credentials', message: 'That email and password do not match. Try demo@haul.io with demo1234.' })
+  }
+  const token = newSessionToken()
+  const ttl = remember ? REMEMBERED_SESSION_TTL_MS : SESSION_TTL_MS
+  createSession(account.id, ttl, token)
+  res.setHeader('Set-Cookie', sessionCookie(token, ttl))
+  res.json({ id: account.id, email: account.email, name: account.name, role: account.role } satisfies User)
+})
+
+app.post('/api/auth/logout', (_req: Request, res: Response) => {
+  if (res.locals.token) deleteSession(String(res.locals.token))
+  res.setHeader('Set-Cookie', clearedSessionCookie())
+  res.status(204).end()
+})
+
+app.get('/api/auth/me', (_req: Request, res: Response) => {
+  res.json(currentUser(res))
+})
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true, configured: true, engine: ENGINE, database: DB_PATH })
 })
 
 /* ------------------------------------------------------------------- data */
+
+/** The AI endpoints always answer from a fresh SQLite read. */
+function currentContext(): NetworkContext {
+  return getSnapshot()
+}
 
 app.get('/api/snapshot', (_req: Request, res: Response) => {
   res.json(getSnapshot())
@@ -62,29 +103,58 @@ app.get('/api/activity', (_req: Request, res: Response) => {
   res.json({ activity: listActivity() })
 })
 
-/* ---------------------------------------------------------------- copilot */
+/* ---------------------------------------------------------- conversations */
+
+app.get('/api/conversations', (_req: Request, res: Response) => {
+  res.json({ conversations: listConversations(currentUser(res).id) })
+})
+
+app.get('/api/conversations/:id/messages', (req: Request, res: Response) => {
+  const conversation = getConversation(Number(req.params.id), currentUser(res).id)
+  if (!conversation) return res.status(404).json({ error: 'not_found', message: 'Conversation not found.' })
+  res.json({ conversation, messages: listMessages(conversation.id) })
+})
+
+app.delete('/api/conversations/:id', (req: Request, res: Response) => {
+  const removed = deleteConversation(Number(req.params.id), currentUser(res).id)
+  if (!removed) return res.status(404).json({ error: 'not_found', message: 'Conversation not found.' })
+  res.status(204).end()
+})
+
+/* -------------------------------------------------------------- assistant */
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+function titleFrom(message: string): string {
+  const cleaned = message.replace(/\s+/g, ' ').trim()
+  return cleaned.length > 60 ? `${cleaned.slice(0, 57)}...` : cleaned
+}
+
 /**
- * Streams the copilot reply as server-sent events. The answer is computed
- * instantly by the demo engine and then released word by word so the panel
- * behaves the way a streaming model would.
+ * Streams the assistant's reply as server-sent events. The answer is computed
+ * instantly by the demo engine and then released word by word so the page
+ * behaves the way a streaming model would. The first frame carries the
+ * conversation id so a brand-new chat can be selected in the sidebar.
  */
 app.post('/api/chat', async (req: Request, res: Response) => {
-  const { messages } = req.body ?? {}
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'bad_request', message: 'messages[] is required.' })
+  const user = currentUser(res)
+  const message = String(req.body?.message ?? '').trim()
+  if (!message) {
+    return res.status(400).json({ error: 'bad_request', message: 'message is required.' })
   }
 
-  const history: ChatMessage[] = messages.map((message: { role?: string; content?: unknown }) => ({
-    role: message.role === 'assistant' ? 'assistant' : 'user',
-    content: String(message.content ?? ''),
-  }))
-  const latest = [...history].reverse().find((message) => message.role === 'user')
-  if (latest) addChatMessage('user', latest.content)
+  const requestedId = req.body?.conversationId
+  let conversation = requestedId != null ? getConversation(Number(requestedId), user.id) : null
+  if (requestedId != null && !conversation) {
+    return res.status(404).json({ error: 'not_found', message: 'Conversation not found.' })
+  }
+  if (!conversation) conversation = createConversation(user.id, titleFrom(message))
 
-  const answer = answerQuestion(history, currentContext())
+  const history: ChatMessage[] = listMessages(conversation.id).map(({ role, content }) => ({ role, content }))
+  history.push({ role: 'user', content: message })
+  addMessage(conversation.id, 'user', message)
+
+  const answer = answerQuestion(history, currentContext(), user)
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -98,6 +168,8 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   let aborted = false
   res.on('close', () => { aborted = true })
 
+  send('meta', { conversationId: conversation.id, title: conversation.title })
+
   const chunks = answer.match(/\S+\s*/g) ?? [answer]
   for (const chunk of chunks) {
     if (aborted) break
@@ -106,20 +178,11 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   }
 
   // Persist the full reply even if the operator hit Stop, so history stays coherent.
-  addChatMessage('assistant', answer)
+  addMessage(conversation.id, 'assistant', answer)
   if (!aborted) {
     send('done', { stopReason: 'end_turn' })
     res.end()
   }
-})
-
-app.get('/api/chat/history', (_req: Request, res: Response) => {
-  res.json({ messages: listChatMessages() })
-})
-
-app.delete('/api/chat/history', (_req: Request, res: Response) => {
-  clearChatMessages()
-  res.status(204).end()
 })
 
 /* --------------------------------------------------------- AI endpoints */
@@ -156,4 +219,5 @@ app.listen(PORT, () => {
   console.log(`[haul.io] API listening on http://localhost:${PORT}`)
   console.log(`[haul.io] SQLite database: ${DB_PATH}`)
   console.log(`[haul.io] AI engine: ${ENGINE} (no API key required)`)
+  console.log('[haul.io] Demo login: demo@haul.io / demo1234')
 })

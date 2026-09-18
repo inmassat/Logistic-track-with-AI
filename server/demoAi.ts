@@ -1,4 +1,4 @@
-import type { ActivityEntry, Briefing, ChatMessage, NetworkContext, RiskAssessment, SearchResult, Shipment, ShipmentStatus } from '../src/data/network'
+import type { ActivityEntry, Briefing, ChatMessage, NetworkContext, RiskAssessment, SearchResult, Shipment, ShipmentStatus, User } from '../src/data/network'
 
 /**
  * A self-contained demo "AI" for the dashboard. Every answer is produced by
@@ -307,8 +307,8 @@ function timeAgo(iso: string): string {
   return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
-/** Produces the copilot's reply to the latest user message. */
-export function answerQuestion(messages: ChatMessage[], context: NetworkContext): string {
+/** Produces the assistant's reply to the latest user message. */
+export function answerQuestion(messages: ChatMessage[], context: NetworkContext, user?: User): string {
   const last = [...messages].reverse().find((message) => message.role === 'user')
   const q = (last?.content ?? '').toLowerCase().trim()
   if (!q) return fallbackAnswer(context)
@@ -317,8 +317,15 @@ export function answerQuestion(messages: ChatMessage[], context: NetworkContext)
   if (idMatch) return shipmentAnswer(context, `TRK-${idMatch[1]}`)
 
   if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(q)) {
-    return `Good to see you. ${overviewAnswer(context)}\n\nAsk me what is at risk, what happened recently, or what to deal with first.`
+    const name = user?.name.split(' ')[0]
+    return `${name ? `Good to see you, ${name}.` : 'Good to see you.'} ${overviewAnswer(context)}\n\nAsk me what is at risk, what happened recently, or what to deal with first.`
   }
+
+  if (/who am i|my (account|role|name)|logged in as/.test(q) && user) {
+    return `You are signed in as ${user.name} (${user.email}), ${user.role.toLowerCase()} at Atlas Haulage.`
+  }
+
+  if (/what can you do|help|how do (i|you)|what do you know/.test(q)) return fallbackAnswer(context)
 
   const customer = [...new Set(context.shipments.map((shipment) => shipment.customer))].find((name) => {
     const words = name.toLowerCase().split(/\s+/).filter((word) => word.length > 3)

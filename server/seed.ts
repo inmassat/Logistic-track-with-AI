@@ -62,3 +62,9 @@ export const FLEET: FleetSnapshot & { onTimeRate: string; onTimeRateLastMonth: s
   onTimeRateLastMonth: '92.1%',
   utilization: '78.2%',
 }
+
+/** Demo accounts. Passwords are hashed with scrypt before they reach SQLite. */
+export const SEED_USERS = [
+  { email: 'demo@haul.io', password: 'demo1234', name: 'Jamie Morgan', role: 'Fleet manager' },
+  { email: 'dispatch@haul.io', password: 'dispatch1234', name: 'Elena Rossi', role: 'Dispatcher' },
+]

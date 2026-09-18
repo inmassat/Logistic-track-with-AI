@@ -69,6 +69,14 @@ export type NetworkContext = {
   activity: ActivityEntry[]
 }
 
+/* ------------------------------------------------------------ users & chat */
+
+export type User = { id: number; email: string; name: string; role: string }
+
+export type Conversation = { id: number; title: string; createdAt: string; updatedAt: string }
+
+export type StoredMessage = { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }
+
 /* ------------------------------------------------------- AI result shapes */
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string }

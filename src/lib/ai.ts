@@ -1,4 +1,4 @@
-import type { ActivityEntry, Briefing, ChatMessage, NetworkContext, NewShipment, RiskAssessment, SearchResult, Shipment } from '../data/network'
+import type { ActivityEntry, Briefing, Conversation, NetworkContext, NewShipment, RiskAssessment, SearchResult, Shipment, StoredMessage, User } from '../data/network'
 
 export type { Briefing, ChatMessage, RiskAssessment, RiskLevel, SearchResult } from '../data/network'
 
@@ -18,13 +18,13 @@ const OFFLINE_MESSAGE = 'Cannot reach the server. Is `npm run dev` (or `npm run 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(path, init)
+    response = await fetch(path, { credentials: 'same-origin', ...init })
   } catch {
     throw new AiError('offline', OFFLINE_MESSAGE)
   }
   if (!response.ok) {
     const detail = (await response.json().catch(() => null)) as ErrorPayload
-    throw new AiError(detail?.error ?? 'error', detail?.message ?? 'The server returned an error.')
+    throw new AiError(detail?.error ?? (response.status === 401 ? 'unauthorized' : 'error'), detail?.message ?? 'The server returned an error.')
   }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
@@ -36,6 +36,26 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+/* --------------------------------------------------------------- auth API */
+
+export function login(email: string, password: string, remember: boolean) {
+  return postJson<User>('/api/auth/login', { email, password, remember })
+}
+
+export function logout() {
+  return request<void>('/api/auth/logout', { method: 'POST' })
+}
+
+/** Resolves to the signed-in user, or null when there is no valid session. */
+export async function fetchCurrentUser(): Promise<User | null> {
+  try {
+    return await request<User>('/api/auth/me')
+  } catch (error) {
+    if (error instanceof AiError && error.code === 'unauthorized') return null
+    throw error
+  }
 }
 
 /* --------------------------------------------------------------- data API */
@@ -66,12 +86,16 @@ export function fetchSearch(query: string, context: NetworkContext) {
   return postJson<SearchResult>('/api/search', { query, context })
 }
 
-export function fetchChatHistory() {
-  return request<{ messages: (ChatMessage & { id: number; createdAt: string })[] }>('/api/chat/history')
+export function fetchConversations() {
+  return request<{ conversations: Conversation[] }>('/api/conversations')
 }
 
-export function clearChatHistory() {
-  return request<void>('/api/chat/history', { method: 'DELETE' })
+export function fetchConversationMessages(id: number) {
+  return request<{ conversation: Conversation; messages: StoredMessage[] }>(`/api/conversations/${id}/messages`)
+}
+
+export function deleteConversation(id: number) {
+  return request<void>(`/api/conversations/${id}`, { method: 'DELETE' })
 }
 
 export async function checkHealth(): Promise<{ ok: boolean; configured: boolean; engine?: string }> {
@@ -84,22 +108,30 @@ export async function checkHealth(): Promise<{ ok: boolean; configured: boolean;
   }
 }
 
+export type ChatStreamHandlers = {
+  /** Fires once, before any text, with the conversation the reply belongs to. */
+  onMeta: (meta: { conversationId: number; title: string }) => void
+  onDelta: (text: string) => void
+}
+
 /**
- * Streams a copilot reply. `onDelta` fires for each chunk of text; the promise
- * resolves once the stream closes so callers can clear their pending state.
+ * Sends one message and streams the assistant's reply. Pass `conversationId`
+ * null to start a new conversation; the server creates it and reports its id
+ * through `onMeta`. The promise resolves once the stream closes.
  */
 export async function streamChat(
-  messages: ChatMessage[],
-  context: NetworkContext,
-  onDelta: (text: string) => void,
+  conversationId: number | null,
+  message: string,
+  handlers: ChatStreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
   let response: Response
   try {
     response = await fetch('/api/chat', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, context }),
+      body: JSON.stringify({ conversationId, message }),
       signal,
     })
   } catch (error) {
@@ -109,9 +141,9 @@ export async function streamChat(
 
   if (!response.ok) {
     const detail = (await response.json().catch(() => null)) as ErrorPayload
-    throw new AiError(detail?.error ?? 'error', detail?.message ?? 'The copilot is unavailable.')
+    throw new AiError(detail?.error ?? (response.status === 401 ? 'unauthorized' : 'error'), detail?.message ?? 'The assistant is unavailable.')
   }
-  if (!response.body) throw new AiError('error', 'The copilot returned an empty response.')
+  if (!response.body) throw new AiError('error', 'The assistant returned an empty response.')
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -135,7 +167,8 @@ export async function streamChat(
         const event = eventLine.slice(7).trim()
         const payload = JSON.parse(dataLine.slice(6))
 
-        if (event === 'delta') onDelta(payload.text)
+        if (event === 'meta') handlers.onMeta(payload)
+        if (event === 'delta') handlers.onDelta(payload.text)
         if (event === 'error') throw new AiError('stream', payload.message)
         if (event === 'done') return
       }
