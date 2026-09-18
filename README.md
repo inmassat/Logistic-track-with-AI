@@ -21,7 +21,7 @@ Sign in on the login screen with one of the demo accounts stored in SQLite. Ther
 Passwords are hashed with scrypt before they are stored. Signing in creates a session row and
 sets an HttpOnly cookie; "Remember me" keeps the session for 30 days instead of 12 hours. Every
 API route except login and health requires a valid session, and each user only sees their own
-assistant conversations.
+assistant conversations, settings, support requests and saved reports.
 
 ## Where the AI is
 
@@ -81,6 +81,8 @@ Creating a shipment in the UI inserts a row and logs a "Shipment booked" activit
 "Mark for review" on a row logs a review entry. "Dispatch vehicle" on the Fleet page inserts a
 dispatch row and logs a "Vehicle dispatched" entry. "Add driver" on the Drivers page inserts a
 roster row and logs a "Driver added" entry. All of them appear in the overview immediately.
+Saving settings, sending a support request and exporting a CSV also write rows, but to the
+per-user tables rather than the activity feed.
 
 ## Pages
 
@@ -140,8 +142,8 @@ to SQLite and show up across the dashboard on the next refresh.
 
 ## Tech stack
 
-React 19 - TypeScript - Vite - Tailwind CSS - lucide-react - Recharts - TanStack Query -
-date-fns - Express 5 - SQLite via `node:sqlite`
+React 19 - TypeScript - Vite - lucide-react - TanStack Query - date-fns - Express 5 -
+SQLite via `node:sqlite`. Styling is hand-written CSS in `src/App.css` and `src/ai.css`.
 
 ## Getting started
 
