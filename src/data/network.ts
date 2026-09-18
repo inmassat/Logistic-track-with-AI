@@ -140,7 +140,7 @@ export type SupportRequest = {
 /** What the contact-support form sends. */
 export type NewSupportRequest = { subject: string; message: string }
 
-export type ReportKind = 'analytics' | 'routes'
+export type ReportKind = 'analytics' | 'routes' | 'shipments'
 
 /** A CSV report generated from the database and kept so it can be downloaded again. */
 export type Report = {
@@ -151,8 +151,11 @@ export type Report = {
   createdAt: string
 }
 
-/** What the export button sends. */
-export type NewReport = { kind: ReportKind }
+/**
+ * What the export button sends. `shipmentIds` narrows a shipments report to the
+ * rows currently on screen (search, status tab, smart search); omit it for all.
+ */
+export type NewReport = { kind: ReportKind; shipmentIds?: string[] }
 
 export type Conversation = { id: number; title: string; createdAt: string; updatedAt: string }
 

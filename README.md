@@ -69,7 +69,7 @@ Tables:
 | `sessions` | Login sessions (token, user, expiry) behind the HttpOnly cookie |
 | `user_settings` | Each user's workspace name and notification preferences |
 | `support_requests` | Help-center requests (subject, message, status), linked to the user who sent them |
-| `reports` | Saved CSV exports (kind, filename, row count and the CSV itself), linked to the user who exported them |
+| `reports` | Saved CSV exports (shipments, routes or analytics: kind, filename, row count and the CSV itself), linked to the user who exported them |
 | `shipments` | Tracking ID, route, customer, ETA, progress, status, service level |
 | `activity` | The activity feed (deliveries, delays, bookings, reviews, dispatches), linked to shipments |
 | `drivers` | The driver roster: name, phone, license class, home hub and status |
@@ -97,9 +97,12 @@ paginated five rows at a time.
   selectable periods (this week / last week / this month) and the paginated activity feed.
   Shipment rows have a menu to copy the tracking ID, and clicking a row's risk badge shows
   the one-line reason behind the score.
-- **Shipments** - the full shipment table with natural-language search, status filters, CSV
-  export and a create-shipment dialog that writes to SQLite. Each row has an action menu to
-  copy the tracking ID or mark the shipment for review.
+- **Shipments** - the full shipment table with natural-language search, status filters and a
+  create-shipment dialog that writes to SQLite. Each row has an action menu to copy the
+  tracking ID or mark the shipment for review. "Export" sends the IDs of the shipments
+  currently on screen to the server, which builds the CSV from a fresh database read, saves
+  it to the `reports` table and returns it for download, with a "Saved reports" panel for
+  re-downloads.
 - **Fleet** - fleet control. Metrics for vehicles connected, vehicles in motion, hub coverage
   and utilization, a paginated "Vehicles in motion" list of undelivered shipments with their
   risk badges (click one for the reason), a paginated hub list, a "Recent dispatches" log and a
@@ -132,8 +135,8 @@ paginated five rows at a time.
   ticket number, status and when it was sent. Users only ever see their own requests.
 
 Creating a shipment, marking one for review, dispatching a vehicle, adding a driver, saving
-settings, contacting support and exporting an analytics or routes report all write to SQLite
-and show up across the dashboard on the next refresh.
+settings, contacting support and exporting a shipments, routes or analytics report all write
+to SQLite and show up across the dashboard on the next refresh.
 
 ## Tech stack
 
@@ -195,7 +198,7 @@ PUT    /api/settings                      save {name, workspace, riskAlerts, dri
 GET    /api/support                       the user's support requests, newest first
 POST   /api/support                       send a support request {subject, message}
 GET    /api/reports                       the user's saved exports, newest first
-POST   /api/reports                       generate and save a report {kind: "analytics" | "routes"} -> report, csv
+POST   /api/reports                       generate and save a report {kind: "analytics" | "routes" | "shipments", shipmentIds?} -> report, csv
 GET    /api/reports/:id/download          the saved CSV as an attachment
 GET    /api/health                        engine name and database path
 GET    /api/snapshot                      shipments, metrics, fleet, drivers, dispatches and activity in one payload

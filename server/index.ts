@@ -107,7 +107,8 @@ app.post('/api/reports', (req: Request, res: Response) => {
   if (!REPORT_KINDS.includes(kind)) {
     return res.status(400).json({ error: 'bad_request', message: `Unknown report kind. Expected one of: ${REPORT_KINDS.join(', ')}.` })
   }
-  const { filename, csv, rowCount } = buildReport(kind, getSnapshot())
+  const shipmentIds = Array.isArray(body.shipmentIds) ? body.shipmentIds.map((id) => String(id)).slice(0, 5000) : undefined
+  const { filename, csv, rowCount } = buildReport(kind, getSnapshot(), { shipmentIds })
   const report = createReport(currentUser(res).id, kind, filename, rowCount, csv)
   res.status(201).json({ report, csv })
 })
