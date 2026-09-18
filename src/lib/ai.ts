@@ -1,4 +1,4 @@
-import type { ActivityEntry, Briefing, Conversation, Dispatch, Driver, NetworkContext, NewDispatch, NewDriver, NewShipment, RiskAssessment, SearchResult, SettingsInput, Shipment, StoredMessage, User, UserSettings } from '../data/network'
+import type { ActivityEntry, Briefing, Conversation, Dispatch, Driver, NetworkContext, NewDispatch, NewDriver, NewShipment, NewSupportRequest, RiskAssessment, SearchResult, SettingsInput, Shipment, StoredMessage, SupportRequest, User, UserSettings } from '../data/network'
 
 export type { Briefing, ChatMessage, RiskAssessment, RiskLevel, SearchResult } from '../data/network'
 
@@ -78,6 +78,14 @@ export function createDriver(input: NewDriver) {
 
 export function dispatchVehicle(input: NewDispatch) {
   return postJson<Dispatch>('/api/dispatches', input)
+}
+
+export function fetchSupportRequests() {
+  return request<{ requests: SupportRequest[] }>('/api/support')
+}
+
+export function createSupportRequest(input: NewSupportRequest) {
+  return postJson<SupportRequest>('/api/support', input)
 }
 
 export function fetchSettings() {

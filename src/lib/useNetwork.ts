@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createDriver, createShipment, deleteConversation, dispatchVehicle, fetchConversations, fetchSettings, fetchSnapshot, markShipmentForReview, saveSettings } from './ai'
+import { createDriver, createShipment, createSupportRequest, deleteConversation, dispatchVehicle, fetchConversations, fetchSettings, fetchSnapshot, fetchSupportRequests, markShipmentForReview, saveSettings } from './ai'
 
 export const SNAPSHOT_KEY = ['snapshot'] as const
 export const CONVERSATIONS_KEY = ['conversations'] as const
 export const SETTINGS_KEY = ['settings'] as const
+export const SUPPORT_KEY = ['support'] as const
 
 /**
  * Loads the network snapshot (shipments, metrics, fleet and activity) from
@@ -62,6 +63,23 @@ export function useSaveSettings() {
   return useMutation({
     mutationFn: saveSettings,
     onSuccess: (result) => queryClient.setQueryData(SETTINGS_KEY, result.settings),
+  })
+}
+
+/** The signed-in user's support requests from the help center, newest first. */
+export function useSupportRequests() {
+  return useQuery({
+    queryKey: SUPPORT_KEY,
+    queryFn: fetchSupportRequests,
+    select: (result) => result.requests,
+  })
+}
+
+export function useCreateSupportRequest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: createSupportRequest,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: SUPPORT_KEY }),
   })
 }
 

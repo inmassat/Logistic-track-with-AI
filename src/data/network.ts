@@ -126,6 +126,20 @@ export type UserSettings = {
 /** What the settings form sends. */
 export type SettingsInput = Omit<UserSettings, 'updatedAt'>
 
+export type SupportStatus = 'Open' | 'Resolved'
+
+/** A help-center request a user sent to support. */
+export type SupportRequest = {
+  id: number
+  subject: string
+  message: string
+  status: SupportStatus
+  createdAt: string
+}
+
+/** What the contact-support form sends. */
+export type NewSupportRequest = { subject: string; message: string }
+
 export type Conversation = { id: number; title: string; createdAt: string; updatedAt: string }
 
 export type StoredMessage = { id: number; role: 'user' | 'assistant'; content: string; createdAt: string }

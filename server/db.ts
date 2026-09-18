@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ActivityEntry, ActivityKind, Conversation, Dispatch, Driver, DriverStatus, NetworkContext, NetworkMetrics, NewDispatch, NewDriver, NewShipment, SettingsInput, Shipment, ShipmentStatus, StoredMessage, User, UserSettings } from '../src/data/network'
+import type { ActivityEntry, ActivityKind, Conversation, Dispatch, Driver, DriverStatus, NetworkContext, NetworkMetrics, NewDispatch, NewDriver, NewShipment, NewSupportRequest, SettingsInput, Shipment, ShipmentStatus, StoredMessage, SupportRequest, SupportStatus, User, UserSettings } from '../src/data/network'
 import { hashPassword } from './auth'
 import { FLEET, SEED_ACTIVITY, SEED_DRIVERS, SEED_SHIPMENTS, SEED_USERS } from './seed'
 
@@ -13,7 +13,7 @@ import { FLEET, SEED_ACTIVITY, SEED_DRIVERS, SEED_SHIPMENTS, SEED_USERS } from '
  * created.
  */
 
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 5
 
 const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -125,7 +125,17 @@ db.exec(`
     updated_at     TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS support_requests (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    subject    TEXT NOT NULL,
+    message    TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Resolved')),
+    created_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS activity_occurred_at ON activity(occurred_at DESC);
+  CREATE INDEX IF NOT EXISTS support_requests_user ON support_requests(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS dispatches_created_at ON dispatches(created_at DESC);
   CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
   CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at DESC);
@@ -279,6 +289,28 @@ export function saveUserSettings(user: User, input: SettingsInput): { user: User
   }
   const updatedUser = { ...user, name }
   return { user: updatedUser, settings: getUserSettings(updatedUser) }
+}
+
+/* --------------------------------------------------------- support requests */
+
+type SupportRow = { id: number; subject: string; message: string; status: SupportStatus; created_at: string }
+
+function toSupportRequest(row: SupportRow): SupportRequest {
+  return { id: row.id, subject: row.subject, message: row.message, status: row.status, createdAt: row.created_at }
+}
+
+/** The user's own support requests, newest first. */
+export function listSupportRequests(userId: number): SupportRequest[] {
+  const rows = db.prepare('SELECT id, subject, message, status, created_at FROM support_requests WHERE user_id = ? ORDER BY created_at DESC, id DESC').all(userId) as unknown as SupportRow[]
+  return rows.map(toSupportRequest)
+}
+
+export function createSupportRequest(userId: number, input: NewSupportRequest): SupportRequest {
+  const subject = input.subject.trim()
+  const message = input.message.trim()
+  const createdAt = nowIso()
+  const result = db.prepare('INSERT INTO support_requests (user_id, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, subject, message, 'Open', createdAt)
+  return { id: Number(result.lastInsertRowid), subject, message, status: 'Open', createdAt }
 }
 
 /* ---------------------------------------------------------------- shipments */

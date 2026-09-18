@@ -3,9 +3,9 @@ import type { NextFunction, Request, Response } from 'express'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ChatMessage, NetworkContext, NewDispatch, NewDriver, NewShipment, SettingsInput, User } from '../src/data/network'
+import type { ChatMessage, NetworkContext, NewDispatch, NewDriver, NewShipment, NewSupportRequest, SettingsInput, User } from '../src/data/network'
 import { REMEMBERED_SESSION_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, clearedSessionCookie, newSessionToken, parseCookies, sessionCookie, verifyPassword } from './auth'
-import { DB_PATH, addMessage, createConversation, createDispatch, createDriver, createSession, createShipment, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, getUserSettings, listActivity, listConversations, listDispatches, listDrivers, listMessages, listShipments, markShipmentForReview, saveUserSettings } from './db'
+import { DB_PATH, addMessage, createConversation, createDispatch, createDriver, createSession, createShipment, createSupportRequest, deleteConversation, deleteSession, findUserByEmail, getConversation, getSessionUser, getSnapshot, getUserSettings, listActivity, listConversations, listDispatches, listDrivers, listMessages, listShipments, listSupportRequests, markShipmentForReview, saveUserSettings } from './db'
 import { ENGINE, answerQuestion, assessRisk, buildBriefing, searchShipments } from './demoAi'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -74,6 +74,23 @@ app.put('/api/settings', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'bad_request', message: 'Name and workspace must be 80 characters or fewer.' })
   }
   res.json(saveUserSettings(currentUser(res), input))
+})
+
+app.get('/api/support', (_req: Request, res: Response) => {
+  res.json({ requests: listSupportRequests(currentUser(res).id) })
+})
+
+app.post('/api/support', (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Partial<NewSupportRequest>
+  const subject = String(body.subject ?? '').trim()
+  const message = String(body.message ?? '').trim()
+  if (!subject || !message) {
+    return res.status(400).json({ error: 'bad_request', message: 'A subject and a message are required.' })
+  }
+  if (subject.length > 120 || message.length > 4000) {
+    return res.status(400).json({ error: 'bad_request', message: 'Keep the subject under 120 characters and the message under 4000.' })
+  }
+  res.status(201).json(createSupportRequest(currentUser(res).id, { subject, message }))
 })
 
 app.get('/api/health', (_req: Request, res: Response) => {
